@@ -17,6 +17,10 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     public private(set) var answered: [MockAnswer] = []
     public private(set) var enteredDecks: [String] = []
     public private(set) var timerStarts = 0
+    /// Every `answerCurrentCard` call that reached the client, including ones
+    /// the mock then rejected: a duplicate answer shows up here even though
+    /// Anki would refuse it.
+    public private(set) var answerAttempts = 0
 
     public init(decks: [(name: String, cards: [CurrentCard])]) {
         self.decks = decks
@@ -85,6 +89,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
 
     public func answerCurrentCard(ease: Int) async throws {
         try check()
+        answerAttempts += 1
         guard let index = activeDeck, let card = decks[index].cards.first else {
             throw Self.inactive
         }
