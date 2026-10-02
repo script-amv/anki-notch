@@ -4,7 +4,7 @@ import Foundation
 /// Frame math for the notch hotspot and the panel that hangs from it. Free of
 /// AppKit so it is unit-testable; the app layer feeds it `NSScreen` measurements.
 public struct PanelGeometry: Equatable, Sendable {
-    public static let panelWidth: CGFloat = 320
+    public static let panelWidth: CGFloat = 480
     public static let minContentHeight: CGFloat = 160
     public static let maxContentHeight: CGFloat = 560
     public static let cornerRadius: CGFloat = 20

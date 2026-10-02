@@ -49,7 +49,7 @@ notifications, launch-at-login, updates, sync.
 
 - Borderless `NSPanel` above the menu bar (`mainMenu + 1`), top edge flush with
   the top of the screen, horizontally centered on the notch.
-- Width fixed at 320 pt. Height follows the card: the web view reports its
+- Width fixed at 480 pt. Height follows the card: the web view reports its
   content height; the panel is clamped to **160–560 pt** and animates height
   changes (front→back, next card). A taller card scrolls inside the panel.
 - Shape: black strip the height of the notch/menu bar (so it reads as the notch
@@ -184,5 +184,5 @@ a UI:
 
 - Whether the answer side should hide the repeated question — deliberately
   left as Anki renders it for v1.
-- Panel width (320) and height clamp (160–560) are starting values; both are
+- Panel width (480) and height clamp (160–560) are starting values; both are
   single constants.

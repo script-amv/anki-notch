@@ -17,7 +17,7 @@ import Testing
                                      notch: notch)
         #expect(geometry.hotspot == notch)
         #expect(geometry.panelFrame(contentHeight: 300)
-                == CGRect(x: 596, y: 650, width: 320, height: 332))
+                == CGRect(x: 516, y: 650, width: 480, height: 332))
     }
 
     @Test func notchlessScreenUsesVirtualNotch() {
@@ -26,7 +26,7 @@ import Testing
         let geometry = PanelGeometry(screenFrame: screen, visibleFrame: visible, notch: nil)
         #expect(geometry.hotspot == CGRect(x: 860, y: 1055, width: 200, height: 25))
         #expect(geometry.panelFrame(contentHeight: 160)
-                == CGRect(x: 800, y: 895, width: 320, height: 185))
+                == CGRect(x: 720, y: 895, width: 480, height: 185))
     }
 
     @Test func virtualNotchIs24HighWhenMenuBarAutoHides() {
@@ -56,14 +56,14 @@ import Testing
     }
 
     @Test func keepsPanelOpenInsideHotspotOrPanelOnly() {
-        let panel = CGRect(x: 596, y: 650, width: 320, height: 332)
+        let panel = CGRect(x: 516, y: 650, width: 480, height: 332)
         func keeps(_ x: CGFloat, _ y: CGFloat) -> Bool {
             PanelGeometry.keepsPanelOpen(mouse: CGPoint(x: x, y: y), hotspot: notch, panel: panel)
         }
         #expect(keeps(756, 966))      // inside the hotspot
         #expect(keeps(700, 700))      // inside the panel
-        #expect(keeps(596, 650))      // exactly on the panel's min corner
-        #expect(keeps(916, 982))      // exactly on its max corner
+        #expect(keeps(516, 650))      // exactly on the panel's min corner
+        #expect(keeps(996, 982))      // exactly on its max corner
         #expect(!keeps(100, 100))
         #expect(!keeps(756, 640))     // just below the panel
     }
@@ -73,7 +73,7 @@ import Testing
     @Test func stageFrameIsTheLargestPanelHangingFromTheNotch() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
-        #expect(geometry.stageFrame == CGRect(x: 596, y: 368, width: 320, height: 614))
+        #expect(geometry.stageFrame == CGRect(x: 516, y: 368, width: 480, height: 614))
         // Every rest frame fits inside it with the same top edge and centre.
         let rest = geometry.panelFrame(contentHeight: 300)
         #expect(geometry.stageFrame.maxY == rest.maxY)
@@ -84,15 +84,15 @@ import Testing
         let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let visible = CGRect(x: 0, y: 0, width: 1920, height: 1055)
         let geometry = PanelGeometry(screenFrame: screen, visibleFrame: visible, notch: nil)
-        #expect(geometry.stageFrame == CGRect(x: 800, y: 473, width: 320, height: 607))
+        #expect(geometry.stageFrame == CGRect(x: 720, y: 473, width: 480, height: 607))
     }
 
     @Test func cardSizeIsTheStripPlusTheClampedContent() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
-        #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 320, height: 332))
-        #expect(geometry.cardSize(contentHeight: 10) == CGSize(width: 320, height: 192))
-        #expect(geometry.cardSize(contentHeight: 900) == CGSize(width: 320, height: 592))
+        #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 480, height: 332))
+        #expect(geometry.cardSize(contentHeight: 10) == CGSize(width: 480, height: 192))
+        #expect(geometry.cardSize(contentHeight: 900) == CGSize(width: 480, height: 592))
         #expect(geometry.panelFrame(contentHeight: 300).size
                 == geometry.cardSize(contentHeight: 300))
     }
@@ -103,7 +103,7 @@ import Testing
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
         #expect(geometry.cardSize(contentHeight: 300, showsRoute: true)
-                == CGSize(width: 320, height: 354))
+                == CGSize(width: 480, height: 354))
         // The card area keeps its clamp; the row is extra, not part of it.
         #expect(geometry.cardSize(contentHeight: 900, showsRoute: true).height == 614)
         #expect(geometry.cardSize(contentHeight: 10, showsRoute: true).height == 214)
@@ -115,7 +115,7 @@ import Testing
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
         let frame = geometry.panelFrame(contentHeight: 300, showsRoute: true)
-        #expect(frame == CGRect(x: 596, y: 628, width: 320, height: 354))
+        #expect(frame == CGRect(x: 516, y: 628, width: 480, height: 354))
         #expect(frame.maxY == geometry.stageFrame.maxY)
         #expect(geometry.stageFrame.height
                 == geometry.cardSize(contentHeight: PanelGeometry.maxContentHeight,
@@ -145,15 +145,15 @@ import Testing
     @Test func rowIsTheStripUnderTheNotchAcrossThePanelWidth() {
         #expect(geometry.isRouteRowClick(CGPoint(x: 700, y: 940)))
         #expect(geometry.isRouteRowClick(CGPoint(x: 600, y: 930)))   // beside the notch's width
-        #expect(geometry.isRouteRowClick(CGPoint(x: 596, y: 928)))   // left and bottom edges
-        #expect(geometry.isRouteRowClick(CGPoint(x: 916, y: 940)))   // right edge
+        #expect(geometry.isRouteRowClick(CGPoint(x: 516, y: 928)))   // left and bottom edges
+        #expect(geometry.isRouteRowClick(CGPoint(x: 996, y: 940)))   // right edge
     }
 
     @Test func notchItselfAndEverythingElseIsNotTheRow() {
         #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 950)))  // the notch's bottom edge
         #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 965)))
         #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 927)))  // the card below
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 595, y: 940)))
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 917, y: 940)))
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 515, y: 940)))
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 997, y: 940)))
     }
 }
