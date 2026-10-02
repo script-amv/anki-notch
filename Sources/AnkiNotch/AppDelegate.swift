@@ -46,10 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let cards = (0..<8).map { index -> CurrentCard in
             let base = MockAnkiConnectClient.sampleCards[index % 2]
+            // Nested names so the route row (and its shortening) can be tried.
+            let deck = ["Sample", "Languages::Japanese::Core",
+                        "Languages::Japanese::Core::Kanji::Grade 1::Readings"][index % 3]
             return CurrentCard(cardId: Int64(index + 1),
                                question: "\(index + 1). \(base.question)",
                                answer: "\(index + 1). \(base.answer)",
-                               css: base.css, buttons: base.buttons, deckName: base.deckName)
+                               css: base.css, buttons: base.buttons, deckName: deck)
         }
         return MockAnkiConnectClient(decks: [("Sample", cards)])
     }
@@ -72,13 +75,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch session.phase {
         case .front(let card):
             panel.setMessage(nil)
+            panel.setDeckRoute(card.deckName)
             cardView.show(html: card.question, css: card.css, mediaDir: session.mediaDir,
                           forceBlackBackground: forceBlack)
         case .back(let card):
             panel.setMessage(nil)
+            panel.setDeckRoute(card.deckName)
             cardView.show(html: card.answer, css: card.css, mediaDir: session.mediaDir,
                           forceBlackBackground: forceBlack)
         case .allDone, .failed:
+            panel.setDeckRoute(nil)
             panel.setMessage(session.phase.message)
         // Keep whatever is on screen: a request is in flight.
         case .idle, .loading, .submitting:
