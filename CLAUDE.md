@@ -9,6 +9,15 @@ Design: `docs/superpowers/specs/2026-10-02-ankinotch-design.md`.
 Plan: `docs/superpowers/plans/2026-10-02-ankinotch.md`.
 `~/Developer/reviewbar-for-anki` is reference only.
 
+## Working conventions
+
+- **Every new feature is built in a new chat.** Chats here grow huge and slow;
+  a fresh one starts cheap. In the new chat the work follows the usual order
+  (brainstorm → spec → plan → build), starting from the repo and the handoff
+  note in `docs/handoff/`, not from the old conversation. If a feature request
+  arrives in a long chat, don't start it there: write a handoff note and say so.
+- Bug fixes for a feature you just built can stay in its chat.
+
 ## Commands
 
 ```sh
