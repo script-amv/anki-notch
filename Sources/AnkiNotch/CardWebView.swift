@@ -17,6 +17,9 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
     /// loads, so swapping sides never flashes the backing colour.
     private let snapshotView = NSImageView()
     private var loadedDocument: String?
+    /// The last height the page reported, replayed when an unchanged document
+    /// is shown again (the page itself only reports changes).
+    private var contentHeight: CGFloat = 0
 
     private static let heightScript = """
     (function () {
@@ -62,7 +65,10 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
     func show(html: String, css: String, mediaDir: String?) {
         mediaHandler.mediaDir = mediaDir
         let document = CardDocument.html(side: html, css: css)
-        guard document != loadedDocument else { return }
+        guard document != loadedDocument else {
+            if contentHeight > 0 { onContentHeight?(contentHeight) }
+            return
+        }
         let isFirstLoad = loadedDocument == nil
         loadedDocument = document
         if isFirstLoad {
@@ -90,7 +96,8 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController,
                                didReceive message: WKScriptMessage) {
         guard message.name == "cardHeight", let height = message.body as? NSNumber else { return }
-        onContentHeight?(CGFloat(truncating: height))
+        contentHeight = CGFloat(truncating: height)
+        onContentHeight?(contentHeight)
     }
 
     /// The new document has rendered; give it a frame to paint, then drop the

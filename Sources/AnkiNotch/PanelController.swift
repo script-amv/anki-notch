@@ -18,6 +18,7 @@ final class PanelController {
 
     private let panel: NotchPanel
     private let host = NSView()
+    private let messageLabel = NSTextField(labelWithString: "")
     private var geometry: PanelGeometry?
     private var contentHeight: CGFloat = 200
     private var previousApp: NSRunningApplication?
@@ -48,6 +49,29 @@ final class PanelController {
         host.layer?.masksToBounds = true
         panel.contentView = host
         host.addSubview(contentView)
+
+        messageLabel.font = .systemFont(ofSize: 13)
+        messageLabel.textColor = NSColor.white.withAlphaComponent(0.6)
+        messageLabel.isHidden = true
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(messageLabel)
+        NSLayoutConstraint.activate([
+            messageLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            messageLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+    }
+
+    /// Replace the card with one centered line (the terminal states), or, with
+    /// nil, bring the card back. The panel falls to its minimum height for a
+    /// message; a card brings its own height with it.
+    func setMessage(_ text: String?) {
+        for view in contentView.subviews where view !== messageLabel {
+            view.isHidden = text != nil
+        }
+        messageLabel.isHidden = text == nil
+        guard let text else { return }
+        messageLabel.stringValue = text
+        resize(contentHeight: PanelGeometry.minContentHeight, animated: true)
     }
 
     func show(on screen: NSScreen) {
