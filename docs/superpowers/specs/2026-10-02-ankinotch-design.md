@@ -42,8 +42,8 @@ notifications, launch-at-login, updates, sync.
   was never clicked to the front on a mere hover. The app you were in therefore
   stays the active one the whole time, and collapsing the panel hands the
   keyboard straight back to its window — no focus bookkeeping.
-- The mouse leaving the union of hotspot and panel starts a ~250 ms grace
-  timer; re-entering cancels it. When it fires the panel hides.
+- The mouse leaving the union of hotspot and panel collapses the panel
+  immediately: no grace period, no delay (the position is checked every frame).
 
 ### Panel
 
@@ -61,11 +61,12 @@ notifications, launch-at-login, updates, sync.
   strip under the notch and the card starts below it. The card area is the web
   view only, no controls.
 - Motion: the panel **grows out of the notch**. The black shape starts as the
-  notch's own size and springs out to card size (about 0.4 s, 2 pt settle); the
+  notch's own size and eases out to card size on one smooth ease-in-out curve
+  (0.45 s); the
   card content is laid out once at its final size and revealed by the shape
-  growing, fading in a beat after it starts. Collapse is the reverse (0.2 s);
+  growing, fading in a beat after it starts. Collapse is the reverse (0.35 s);
   hovering back in mid-collapse reverses it from where it is. Front↔back and
-  next-card height changes animate the same shape (0.25 s). Reduce Motion
+  next-card height changes animate the same shape (0.3 s). Reduce Motion
   replaces all of it with a quick fade. While anything moves the window is a
   fixed transparent stage (the largest the card can be); at rest it is exactly
   the card, so it never blocks clicks beneath it.
@@ -157,7 +158,7 @@ a UI:
   - `MediaFiles` — media path validation and MIME types.
   - `PanelGeometry` — placement under the notch and the height clamp.
 - **`AnkiNotch`** (executable, AppKit)
-  - `NotchHotspotController`, `PanelController` (hover, grace timer,
+  - `NotchHotspotController`, `PanelController` (hover, instant collapse,
     animated resizing, key monitor), `CardWebView` +
     `MediaSchemeHandler`, `StatusItem` (Quit), app entry point.
 

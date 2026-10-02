@@ -12,17 +12,20 @@ private final class NotchPanel: NSPanel {
 
 /// How the panel moves. The feel lives here; tune these.
 private enum PanelMotion {
-    /// Opening: the shape springs out of the notch, with a slight settle.
-    static let springStiffness: CGFloat = 380
-    static let springDamping: CGFloat = 31
-    /// The card content fades in a beat after the shape starts growing, so a
-    /// small shape never shows a squashed card.
-    static let contentFadeInDelay: CFTimeInterval = 0.1
-    static let contentFadeInDuration: CFTimeInterval = 0.2
-    static let contentFadeOutDuration: CFTimeInterval = 0.12
-    static let collapseDuration: CFTimeInterval = 0.2
+    /// One smooth S-curve (ease in, ease out) for opening, collapsing and
+    /// resizing: slow start, fast middle, soft landing. A cubic Bézier.
+    static var smoothCurve: CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
+    }
+    static let expandDuration: CFTimeInterval = 0.45
+    static let collapseDuration: CFTimeInterval = 0.35
     /// Front ↔ back and next-card height changes.
-    static let resizeDuration: CFTimeInterval = 0.25
+    static let resizeDuration: CFTimeInterval = 0.3
+    /// The card content fades in once the shape has begun to grow, so a small
+    /// shape never shows a squashed card, and out ahead of the shape closing.
+    static let contentFadeInDelay: CFTimeInterval = 0.15
+    static let contentFadeInDuration: CFTimeInterval = 0.3
+    static let contentFadeOutDuration: CFTimeInterval = 0.15
     /// Reduce Motion: no movement, just a quick fade of the content.
     static let reduceMotionFade: CFTimeInterval = 0.15
     /// The shape's bottom corners while it is still notch-sized.
@@ -31,8 +34,8 @@ private enum PanelMotion {
     static let routeToggleFade: CFTimeInterval = 0.15
 }
 
-/// Owns the panel: grows it out of the notch, collapses it back when the mouse
-/// has been away for the grace period, and turns space / `1` / ⌘Z into `ReviewKey`s.
+/// Owns the panel: grows it out of the notch, collapses it back the moment the
+/// mouse leaves it, and turns space / `1` / ⌘Z into `ReviewKey`s.
 ///
 /// The window is a fixed transparent stage while anything is moving (the
 /// largest the card can be, flush with the top of the screen), and shrinks to
@@ -79,7 +82,6 @@ final class PanelController {
     private var motionFrom: (size: CGSize, radius: CGFloat)?
     private var motionStart: CFTimeInterval = 0
     private var hoverTimer: Timer?
-    private var outsideSince: Date?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
     /// A click on the notch flips this; it survives collapse and reopen, not a
@@ -235,7 +237,8 @@ final class PanelController {
             settleWindow()
             return
         }
-        animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius, curve: .spring) {
+        animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius,
+                     curve: .easeInOut(PanelMotion.expandDuration)) {
             [weak self] in self?.settleWindow()
         }
         isOpening = true
@@ -249,7 +252,6 @@ final class PanelController {
         isOpening = false
         hoverTimer?.invalidate()
         hoverTimer = nil
-        outsideSince = nil
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
@@ -264,7 +266,7 @@ final class PanelController {
         ensureStage()
         fadeContent(to: 0, duration: PanelMotion.contentFadeOutDuration, delay: 0)
         animateShape(to: geometry.hotspot.size, cornerRadius: PanelMotion.notchCornerRadius,
-                     curve: .easeIn(PanelMotion.collapseDuration)) { [weak self] in
+                     curve: .easeInOut(PanelMotion.collapseDuration)) { [weak self] in
             guard let self, !self.isOpen else { return }
             self.panel.orderOut(nil)
         }
@@ -283,7 +285,8 @@ final class PanelController {
             layoutContent()
             let wasOpening = isOpening
             animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius,
-                         curve: wasOpening ? .spring : .easeOut(PanelMotion.resizeDuration)) {
+                         curve: wasOpening ? .easeOut(PanelMotion.resizeDuration)
+                                               : .easeInOut(PanelMotion.resizeDuration)) {
                 [weak self] in self?.settleWindow()
             }
             isOpening = wasOpening
@@ -302,8 +305,10 @@ final class PanelController {
     }
 
     private enum Curve {
-        case spring
-        case easeIn(CFTimeInterval)
+        /// The smooth S-curve: opening, collapsing, resizing.
+        case easeInOut(CFTimeInterval)
+        /// Starts at full speed, for retargeting a shape that is already moving
+        /// (an ease-in start would stall it mid-flight).
         case easeOut(CFTimeInterval)
     }
 
@@ -392,28 +397,15 @@ final class PanelController {
             animation.fromValue = from
             animation.toValue = to
             switch curve {
-            case .spring:
-                break  // a spring sets its own duration below
-            case .easeIn(let duration):
+            case .easeInOut(let duration):
                 animation.duration = duration
-                animation.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                animation.timingFunction = PanelMotion.smoothCurve
             case .easeOut(let duration):
                 animation.duration = duration
                 animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
             }
             return animation
         }
-        func makeAnimation(_ keyPath: String) -> CABasicAnimation {
-            guard case .spring = curve else { return CABasicAnimation(keyPath: keyPath) }
-            let spring = CASpringAnimation(keyPath: keyPath)
-            spring.mass = 1
-            spring.stiffness = PanelMotion.springStiffness
-            spring.damping = PanelMotion.springDamping
-            spring.initialVelocity = 0
-            spring.duration = spring.settlingDuration
-            return spring
-        }
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         CATransaction.setCompletionBlock { [weak self] in
@@ -427,9 +419,9 @@ final class PanelController {
         maskLayer.removeAnimation(forKey: "shape.radius")
         maskLayer.bounds = toBounds
         maskLayer.cornerRadius = cornerRadius
-        maskLayer.add(configure(makeAnimation("bounds"), from: NSValue(rect: fromBounds),
+        maskLayer.add(configure(CABasicAnimation(keyPath: "bounds"), from: NSValue(rect: fromBounds),
                                 to: NSValue(rect: toBounds)), forKey: "shape.bounds")
-        maskLayer.add(configure(makeAnimation("cornerRadius"), from: fromRadius,
+        maskLayer.add(configure(CABasicAnimation(keyPath: "cornerRadius"), from: fromRadius,
                                 to: cornerRadius), forKey: "shape.radius")
         CATransaction.commit()
     }
@@ -483,8 +475,8 @@ final class PanelController {
     /// final frame, never the animating one: the window is the larger stage
     /// while anything moves.
     private func startWatchingMouse() {
-        outsideSince = nil
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        // 60 Hz: the panel closes within a frame of the mouse leaving it.
+        hoverTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkMouse() }
         }
     }
@@ -494,13 +486,8 @@ final class PanelController {
         let inside = PanelGeometry.keepsPanelOpen(
             mouse: NSEvent.mouseLocation, hotspot: geometry.hotspot,
             panel: geometry.panelFrame(contentHeight: contentHeight, showsRoute: routeVisible))
-        if inside {
-            outsideSince = nil
-        } else if let since = outsideSince {
-            if Date().timeIntervalSince(since) >= PanelGeometry.collapseGrace { hide() }
-        } else {
-            outsideSince = Date()
-        }
+        // No grace period: the moment the mouse is out, the panel collapses.
+        if !inside { hide() }
     }
 
     // MARK: Clicks
@@ -545,7 +532,6 @@ final class PanelController {
         // Blocks until the menu closes; the action has run by then.
         menu.popUp(positioning: nil, at: NSPoint(x: Self.routeInset, y: 0), in: routeRow)
         menuIsOpen = false
-        outsideSince = nil  // the grace period starts from here, not from before the menu
     }
 
     // MARK: Keys

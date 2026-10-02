@@ -13,8 +13,6 @@ public struct PanelGeometry: Equatable, Sendable {
     /// The deck-route row between the notch strip and the card. It sits
     /// outside the content-height clamp.
     public static let routeRowHeight: CGFloat = 22
-    /// How long the mouse may be outside hotspot and panel before the panel collapses.
-    public static let collapseGrace: TimeInterval = 0.25
     /// How long the mouse must rest on the notch before the panel opens, so
     /// crossing the menu bar through it doesn't take the keyboard.
     public static let openDwell: TimeInterval = 0.15

@@ -72,6 +72,9 @@ the search paths for the Swift Testing framework (see the Makefile).
   `guiStartCardTimer` and `guiDeckReview` answer `false` when the reviewer isn't
   where the request assumes. The client turns it into `AnkiConnectError.declined`;
   the session restarts. The mock behaves the same way — keep it that way.
+- **The panel collapses the instant the mouse leaves it** (60 Hz position check,
+  no grace period); opening is the only thing that waits. Motion is one smooth
+  ease-in-out Bézier for open, collapse and resize (`PanelMotion.smoothCurve`).
 - **Opening needs a 0.15 s dwell and keys arm 0.25 s after the panel appears**
   (`PanelGeometry.openDwell`/`keyArmDelay`), so merely crossing the notch or a
   keystroke already in flight can't take the keyboard or grade a card.
@@ -89,8 +92,9 @@ the search paths for the Swift Testing framework (see the Makefile).
 - **A layer's `presentation()` lies before its first frame**: it reports the
   final model value, so retargeting a just-started animation from it jumps to
   the end. `PanelController.visibleShape` uses the recorded start value for the
-  first ~40 ms; a card-height change arriving mid-open retargets with the same
-  spring. Don't read the presentation layer directly.
+  first ~40 ms; a card-height change arriving mid-open retargets with an ease-out (an
+  ease-in start would stall the moving shape). Don't read the presentation layer
+  directly.
 - **WebKit is warmed at launch** (`CardWebView.warmUp`): the first card load
   otherwise stalls the main thread ~0.25 s and the opening animation hitches.
 - **No panel state may be blank or spinning**: `All done`, `Open Anki`,
