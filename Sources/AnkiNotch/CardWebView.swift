@@ -62,6 +62,15 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
+    /// Spin up WebKit's content process before the first hover: loading the
+    /// first card cold stalls the main thread for a moment, which would make
+    /// the panel's opening animation hitch. Deliberately leaves the document
+    /// bookkeeping alone, so the first real card still takes the plain
+    /// first-load path.
+    func warmUp() {
+        webView.loadHTMLString("", baseURL: nil)
+    }
+
     func show(html: String, css: String, mediaDir: String?) {
         mediaHandler.mediaDir = mediaDir
         let document = CardDocument.html(side: html, css: css)

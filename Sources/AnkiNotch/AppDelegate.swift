@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cardView.frame = panel.contentView.bounds
         cardView.autoresizingMask = [.width, .height]
         panel.contentView.addSubview(cardView)
+        cardView.warmUp()
         cardView.onContentHeight = { [weak panel] height in
             panel?.resize(contentHeight: height, animated: true)
         }

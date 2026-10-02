@@ -75,15 +75,29 @@ public struct PanelGeometry: Equatable, Sendable {
                       width: Self.fallbackNotchWidth, height: height)
     }
 
-    /// The panel's window frame: flush with the screen's top edge, centered on
-    /// the hotspot. A strip as tall as the notch comes first (it reads as the
-    /// notch growing), then the card area.
+    /// The card's size: a strip as tall as the notch (it reads as the notch
+    /// growing), then the card area, clamped.
+    public func cardSize(contentHeight: CGFloat) -> CGSize {
+        CGSize(width: Self.panelWidth,
+               height: hotspot.height + Self.clampedHeight(contentHeight))
+    }
+
+    /// The panel's window frame at rest: flush with the screen's top edge and
+    /// centered on the hotspot.
     public func panelFrame(contentHeight: CGFloat) -> CGRect {
-        let hotspot = hotspot
-        let size = CGSize(width: Self.panelWidth,
-                          height: hotspot.height + Self.clampedHeight(contentHeight))
-        return CGRect(x: hotspot.midX - size.width / 2, y: screenFrame.maxY - size.height,
-                      width: size.width, height: size.height)
+        frame(for: cardSize(contentHeight: contentHeight))
+    }
+
+    /// The largest the panel can be: the window while it animates, so the
+    /// shape can grow and shrink inside it. Same top edge and centre as every
+    /// rest frame, so shrinking the window to a rest frame moves nothing.
+    public var stageFrame: CGRect {
+        frame(for: cardSize(contentHeight: Self.maxContentHeight))
+    }
+
+    private func frame(for size: CGSize) -> CGRect {
+        CGRect(x: hotspot.midX - size.width / 2, y: screenFrame.maxY - size.height,
+               width: size.width, height: size.height)
     }
 
     /// Whether the mouse is still over the hotspot or the panel, edges

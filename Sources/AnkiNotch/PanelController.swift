@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import AnkiNotchKit
 
 /// The borderless window that hangs from the notch. It is a non-activating
@@ -9,8 +10,34 @@ private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
-/// Owns the panel: shows it under the notch, collapses it when the mouse has
-/// been away for the grace period, and turns space / `1` into `ReviewKey`s.
+/// How the panel moves. The feel lives here; tune these.
+private enum PanelMotion {
+    /// Opening: the shape springs out of the notch, with a slight settle.
+    static let springStiffness: CGFloat = 380
+    static let springDamping: CGFloat = 31
+    /// The card content fades in a beat after the shape starts growing, so a
+    /// small shape never shows a squashed card.
+    static let contentFadeInDelay: CFTimeInterval = 0.1
+    static let contentFadeInDuration: CFTimeInterval = 0.2
+    static let contentFadeOutDuration: CFTimeInterval = 0.12
+    static let collapseDuration: CFTimeInterval = 0.2
+    /// Front ↔ back and next-card height changes.
+    static let resizeDuration: CFTimeInterval = 0.25
+    /// Reduce Motion: no movement, just a quick fade of the content.
+    static let reduceMotionFade: CFTimeInterval = 0.15
+    /// The shape's bottom corners while it is still notch-sized.
+    static let notchCornerRadius: CGFloat = 10
+}
+
+/// Owns the panel: grows it out of the notch, collapses it back when the mouse
+/// has been away for the grace period, and turns space / `1` into `ReviewKey`s.
+///
+/// The window is a fixed transparent stage while anything is moving (the
+/// largest the card can be, flush with the top of the screen), and shrinks to
+/// exactly the card at rest so it never blocks clicks beneath it. Inside it,
+/// `host` is black and masked by `maskLayer`; the card content is laid out at
+/// its final size once and only revealed by the mask growing, so the web view
+/// never reflows mid-animation. All motion is Core Animation on the mask.
 @MainActor
 final class PanelController {
     /// Host for whatever the panel shows below the notch-height strip.
@@ -18,16 +45,32 @@ final class PanelController {
     var onKey: ((ReviewKey) -> Void)?
 
     private let panel: NotchPanel
+    private let root = NSView()
     private let host = NSView()
+    private let maskLayer = CALayer()
     private let messageLabel = NSTextField(labelWithString: "")
     private var geometry: PanelGeometry?
     private var contentHeight: CGFloat = 200
+    /// True from `show` until `hide`; the window stays on screen a little
+    /// longer while it collapses.
+    private var isOpen = false
+    /// Bumped by every motion; a finishing animation only acts if it is still
+    /// the latest, so reversing mid-way can't be undone by the old one.
+    private var generation = 0
+    /// The opening spring is still running; a card height that arrives
+    /// meanwhile retargets with the same spring instead of a plain ease.
+    private var isOpening = false
+    /// Where the running shape animation began and when. A layer reports its
+    /// *final* value until its first frame renders, so for that instant the
+    /// start value is the only honest "where is it now".
+    private var motionFrom: (size: CGSize, radius: CGFloat)?
+    private var motionStart: CFTimeInterval = 0
     private var hoverTimer: Timer?
     private var outsideSince: Date?
     private var keyMonitor: Any?
     private var keysArmedAt = Date.distantFuture
 
-    var isVisible: Bool { panel.isVisible }
+    var isVisible: Bool { isOpen }
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -41,14 +84,23 @@ final class PanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
 
-        // Black like the notch, so the panel reads as the notch growing; only
-        // the bottom corners are rounded.
+        // Black like the notch, so the panel reads as the notch growing. The
+        // mask is the visible shape: top-anchored, so changing its size grows
+        // or shrinks it downward from the top edge; only the bottom corners
+        // are rounded.
+        root.autoresizesSubviews = true
+        panel.contentView = root
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.black.cgColor
-        host.layer?.cornerRadius = PanelGeometry.cornerRadius
-        host.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        host.layer?.masksToBounds = true
-        panel.contentView = host
+        // Pinned to the top: shrinking the window crops the bottom, nothing moves.
+        host.autoresizingMask = [.minYMargin]
+        root.addSubview(host)
+        maskLayer.backgroundColor = NSColor.black.cgColor
+        maskLayer.anchorPoint = CGPoint(x: 0.5, y: 1)
+        maskLayer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        maskLayer.cornerRadius = PanelGeometry.cornerRadius
+        host.layer?.mask = maskLayer
+        contentView.wantsLayer = true
         host.addSubview(contentView)
 
         messageLabel.font = .systemFont(ofSize: 13)
@@ -76,22 +128,42 @@ final class PanelController {
     }
 
     func show(on screen: NSScreen) {
-        guard !panel.isVisible else { return }
+        guard !isOpen else { return }
+        isOpen = true
         let geometry = screen.panelGeometry
         self.geometry = geometry
-        let frame = geometry.panelFrame(contentHeight: contentHeight)
-        panel.setFrame(frame, display: false)
-        contentView.autoresizingMask = [.width, .height]
-        contentView.frame = CGRect(x: 0, y: 0, width: frame.width,
-                                   height: frame.height - geometry.hotspot.height)
+        // Re-opening during a collapse keeps the shape where it is and grows
+        // it again from there; from hidden it starts as the notch itself.
+        let wasOnScreen = panel.isVisible
+        layoutStage(geometry)
+        if !wasOnScreen {
+            setShape(size: geometry.hotspot.size, cornerRadius: PanelMotion.notchCornerRadius)
+            setContentOpacity(0)
+        }
         keysArmedAt = Date().addingTimeInterval(PanelGeometry.keyArmDelay)
         panel.makeKeyAndOrderFront(nil)
         startWatchingMouse()
         installKeyMonitor()
+
+        let target = geometry.cardSize(contentHeight: contentHeight)
+        if reduceMotion {
+            setShape(size: target, cornerRadius: PanelGeometry.cornerRadius)
+            fadeContent(to: 1, duration: PanelMotion.reduceMotionFade, delay: 0)
+            settleWindow()
+            return
+        }
+        animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius, curve: .spring) {
+            [weak self] in self?.settleWindow()
+        }
+        isOpening = true
+        fadeContent(to: 1, duration: PanelMotion.contentFadeInDuration,
+                    delay: PanelMotion.contentFadeInDelay)
     }
 
     func hide() {
-        guard panel.isVisible else { return }
+        guard isOpen else { return }
+        isOpen = false
+        isOpening = false
         hoverTimer?.invalidate()
         hoverTimer = nil
         outsideSince = nil
@@ -99,23 +171,208 @@ final class PanelController {
         keyMonitor = nil
         // The previous app never stopped being active, so ordering the panel
         // out is all it takes for its window to get the keyboard back.
-        panel.orderOut(nil)
+        guard let geometry, !reduceMotion else {
+            generation += 1
+            panel.orderOut(nil)
+            return
+        }
+        ensureStage()
+        fadeContent(to: 0, duration: PanelMotion.contentFadeOutDuration, delay: 0)
+        animateShape(to: geometry.hotspot.size, cornerRadius: PanelMotion.notchCornerRadius,
+                     curve: .easeIn(PanelMotion.collapseDuration)) { [weak self] in
+            guard let self, !self.isOpen else { return }
+            self.panel.orderOut(nil)
+        }
     }
 
     /// Resize to a card height (clamped by the geometry), staying flush with
-    /// the top of the screen.
+    /// the top of the screen. The content takes its new size at once; the
+    /// shape follows with the animation, so growing reveals it and shrinking
+    /// leaves black behind it for a moment.
     func resize(contentHeight: CGFloat, animated: Bool) {
         self.contentHeight = PanelGeometry.clampedHeight(contentHeight)
-        guard panel.isVisible, let geometry else { return }
-        panel.setFrame(geometry.panelFrame(contentHeight: self.contentHeight),
-                       display: true, animate: animated)
+        guard isOpen, let geometry else { return }
+        let target = geometry.cardSize(contentHeight: self.contentHeight)
+        if animated && !reduceMotion {
+            ensureStage()
+            layoutContent()
+            let wasOpening = isOpening
+            animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius,
+                         curve: wasOpening ? .spring : .easeOut(PanelMotion.resizeDuration)) {
+                [weak self] in self?.settleWindow()
+            }
+            isOpening = wasOpening
+
+        } else {
+            layoutContent()
+            setShape(size: target, cornerRadius: PanelGeometry.cornerRadius)
+            settleWindow()
+        }
+    }
+
+    // MARK: Motion
+
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private enum Curve {
+        case spring
+        case easeIn(CFTimeInterval)
+        case easeOut(CFTimeInterval)
+    }
+
+    /// The window as the full-size stage, host and content placed inside it.
+    private func layoutStage(_ geometry: PanelGeometry) {
+        let stage = geometry.stageFrame
+        panel.setFrame(stage, display: false)
+        host.frame = CGRect(origin: .zero, size: stage.size)
+        maskLayer.position = CGPoint(x: stage.width / 2, y: stage.height)  // top centre
+        layoutContent()
+    }
+
+    /// The card content at its final size, directly under the notch strip.
+    private func layoutContent() {
+        guard let geometry else { return }
+        let stage = geometry.stageFrame.size
+        let content = PanelGeometry.clampedHeight(contentHeight)
+        contentView.frame = CGRect(x: 0, y: stage.height - geometry.hotspot.height - content,
+                                   width: stage.width, height: content)
+    }
+
+    /// Back to the stage before a motion: same top edge and centre as any rest
+    /// frame, so nothing visible moves.
+    private func ensureStage() {
+        guard let geometry, panel.frame != geometry.stageFrame else { return }
+        panel.setFrame(geometry.stageFrame, display: false)
+    }
+
+    /// At rest the window is exactly the card, so it can't block clicks on
+    /// whatever is beneath the transparent stage.
+    private func settleWindow() {
+        guard isOpen, let geometry else { return }
+        panel.setFrame(geometry.panelFrame(contentHeight: contentHeight), display: true)
+    }
+
+    /// Where the shape visibly is right now.
+    private var visibleShape: (size: CGSize, radius: CGFloat) {
+        guard maskLayer.animationKeys()?.isEmpty == false else {
+            return (maskLayer.bounds.size, maskLayer.cornerRadius)
+        }
+        if let motionFrom, CACurrentMediaTime() - motionStart < 0.04 { return motionFrom }
+        guard let presentation = maskLayer.presentation() else {
+            return (maskLayer.bounds.size, maskLayer.cornerRadius)
+        }
+        return (presentation.bounds.size, presentation.cornerRadius)
+    }
+
+    /// Jump the shape to `size`, cancelling any motion in flight.
+    private func setShape(size: CGSize, cornerRadius: CGFloat) {
+        generation += 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        maskLayer.removeAllAnimations()
+        maskLayer.bounds = CGRect(origin: .zero, size: size)
+        maskLayer.cornerRadius = cornerRadius
+        CATransaction.commit()
+        motionFrom = nil
+        isOpening = false
+    }
+
+    /// Animate the shape from wherever it visibly is to `size`. `completion`
+    /// runs only if nothing newer has started by then.
+    private func animateShape(to size: CGSize, cornerRadius: CGFloat, curve: Curve,
+                              completion: @escaping @MainActor () -> Void) {
+        generation += 1
+        let mine = generation
+        let visible = visibleShape
+        let fromBounds = CGRect(origin: .zero, size: visible.size)
+        let fromRadius = visible.radius
+        motionFrom = visible
+        motionStart = CACurrentMediaTime()
+        let toBounds = CGRect(origin: .zero, size: size)
+
+        func configure(_ animation: CABasicAnimation, from: Any, to: Any) -> CABasicAnimation {
+            animation.fromValue = from
+            animation.toValue = to
+            switch curve {
+            case .spring:
+                break  // a spring sets its own duration below
+            case .easeIn(let duration):
+                animation.duration = duration
+                animation.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            case .easeOut(let duration):
+                animation.duration = duration
+                animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            }
+            return animation
+        }
+        func makeAnimation(_ keyPath: String) -> CABasicAnimation {
+            guard case .spring = curve else { return CABasicAnimation(keyPath: keyPath) }
+            let spring = CASpringAnimation(keyPath: keyPath)
+            spring.mass = 1
+            spring.stiffness = PanelMotion.springStiffness
+            spring.damping = PanelMotion.springDamping
+            spring.initialVelocity = 0
+            spring.duration = spring.settlingDuration
+            return spring
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == mine else { return }
+                self.isOpening = false
+                completion()
+            }
+        }
+        maskLayer.removeAnimation(forKey: "shape.bounds")
+        maskLayer.removeAnimation(forKey: "shape.radius")
+        maskLayer.bounds = toBounds
+        maskLayer.cornerRadius = cornerRadius
+        maskLayer.add(configure(makeAnimation("bounds"), from: NSValue(rect: fromBounds),
+                                to: NSValue(rect: toBounds)), forKey: "shape.bounds")
+        maskLayer.add(configure(makeAnimation("cornerRadius"), from: fromRadius,
+                                to: cornerRadius), forKey: "shape.radius")
+        CATransaction.commit()
+    }
+
+    private func setContentOpacity(_ opacity: Float) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentView.layer?.removeAnimation(forKey: "fade")
+        contentView.layer?.opacity = opacity
+        CATransaction.commit()
+    }
+
+    private func fadeContent(to opacity: Float, duration: CFTimeInterval,
+                             delay: CFTimeInterval) {
+        guard let layer = contentView.layer else { return }
+        let from = layer.animationKeys()?.isEmpty == false
+            ? (layer.presentation()?.opacity ?? layer.opacity) : layer.opacity
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAnimation(forKey: "fade")
+        layer.opacity = opacity
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = from
+        fade.toValue = opacity
+        fade.duration = duration
+        fade.beginTime = CACurrentMediaTime() + delay
+        fade.fillMode = .backwards
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(fade, forKey: "fade")
+        CATransaction.commit()
     }
 
     // MARK: Mouse
 
     /// Polling beats tracking areas here: the panel moves and resizes under
-    /// the mouse, and a plain position check against the live frames is
-    /// immune to the enter/exit events that resizing swallows or fakes.
+    /// the mouse, and a plain position check is immune to the enter/exit
+    /// events that resizing swallows or fakes. It tests against the card's
+    /// final frame, never the animating one: the window is the larger stage
+    /// while anything moves.
     private func startWatchingMouse() {
         outsideSince = nil
         hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -126,7 +383,8 @@ final class PanelController {
     private func checkMouse() {
         guard let geometry else { return }
         let inside = PanelGeometry.keepsPanelOpen(
-            mouse: NSEvent.mouseLocation, hotspot: geometry.hotspot, panel: panel.frame)
+            mouse: NSEvent.mouseLocation, hotspot: geometry.hotspot,
+            panel: geometry.panelFrame(contentHeight: contentHeight))
         if inside {
             outsideSince = nil
         } else if let since = outsideSince {

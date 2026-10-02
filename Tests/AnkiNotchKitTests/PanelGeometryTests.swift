@@ -67,4 +67,33 @@ import Testing
         #expect(!keeps(100, 100))
         #expect(!keeps(756, 640))     // just below the panel
     }
+
+    // MARK: Animation stage
+
+    @Test func stageFrameIsTheLargestPanelHangingFromTheNotch() {
+        let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
+                                     notch: notch)
+        #expect(geometry.stageFrame == CGRect(x: 596, y: 390, width: 320, height: 592))
+        // Every rest frame fits inside it with the same top edge and centre.
+        let rest = geometry.panelFrame(contentHeight: 300)
+        #expect(geometry.stageFrame.maxY == rest.maxY)
+        #expect(geometry.stageFrame.midX == rest.midX)
+    }
+
+    @Test func stageFrameOnANotchlessScreenUsesTheVirtualNotch() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let visible = CGRect(x: 0, y: 0, width: 1920, height: 1055)
+        let geometry = PanelGeometry(screenFrame: screen, visibleFrame: visible, notch: nil)
+        #expect(geometry.stageFrame == CGRect(x: 800, y: 495, width: 320, height: 585))
+    }
+
+    @Test func cardSizeIsTheStripPlusTheClampedContent() {
+        let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
+                                     notch: notch)
+        #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 320, height: 332))
+        #expect(geometry.cardSize(contentHeight: 10) == CGSize(width: 320, height: 192))
+        #expect(geometry.cardSize(contentHeight: 900) == CGSize(width: 320, height: 592))
+        #expect(geometry.panelFrame(contentHeight: 300).size
+                == geometry.cardSize(contentHeight: 300))
+    }
 }

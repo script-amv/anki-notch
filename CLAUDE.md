@@ -57,6 +57,21 @@ the search paths for the Swift Testing framework (see the Makefile).
 - **Hovering again mid-card re-checks `guiCurrentCard`**: same card id keeps the
   side; a different one (reviewed in Anki meanwhile) shows a fresh front. The
   deck is never re-entered while a card is current.
+- **Panel motion is a mask layer inside a stage window.** The window is the
+  full-size transparent stage (`PanelGeometry.stageFrame`) while anything moves
+  and shrinks to the card (`panelFrame`) when settled; never animate the window
+  frame (it blocks the main thread under a web view) and never let the stage
+  stay up at rest (it would eat clicks). The black shape is `maskLayer`
+  (top-anchored, so changing its size grows it downward); card content is laid
+  out once at final size and only revealed. The hover check uses the *final*
+  card frame, not the animating window. Timings live in `PanelMotion`.
+- **A layer's `presentation()` lies before its first frame**: it reports the
+  final model value, so retargeting a just-started animation from it jumps to
+  the end. `PanelController.visibleShape` uses the recorded start value for the
+  first ~40 ms; a card-height change arriving mid-open retargets with the same
+  spring. Don't read the presentation layer directly.
+- **WebKit is warmed at launch** (`CardWebView.warmUp`): the first card load
+  otherwise stalls the main thread ~0.25 s and the opening animation hitches.
 - **No panel state may be blank or spinning**: `All done`, `Open Anki`,
   `Anki error` are shown as one line. The next hover retries.
 - **One native bridge** in the web view: the one-way `cardHeight` message.

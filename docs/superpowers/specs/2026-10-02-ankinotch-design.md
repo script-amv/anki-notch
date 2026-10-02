@@ -56,6 +56,16 @@ notifications, launch-at-login, updates, sync.
   growing), then the card, with rounded bottom corners (~20 pt). The card area
   is the web view only — no padding, no controls.
 
+- Motion: the panel **grows out of the notch**. The black shape starts as the
+  notch's own size and springs out to card size (about 0.4 s, 2 pt settle); the
+  card content is laid out once at its final size and revealed by the shape
+  growing, fading in a beat after it starts. Collapse is the reverse (0.2 s);
+  hovering back in mid-collapse reverses it from where it is. Front↔back and
+  next-card height changes animate the same shape (0.25 s). Reduce Motion
+  replaces all of it with a quick fade. While anything moves the window is a
+  fixed transparent stage (the largest the card can be); at rest it is exactly
+  the card, so it never blocks clicks beneath it.
+
 ### Keys (a local key monitor on the panel; the web view would swallow them)
 
 | Phase        | Space                         | `1`           | Other keys |
