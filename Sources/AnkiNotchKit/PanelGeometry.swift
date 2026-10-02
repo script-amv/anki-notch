@@ -1,0 +1,89 @@
+import CoreGraphics
+import Foundation
+
+/// Frame math for the notch hotspot and the panel that hangs from it. Free of
+/// AppKit so it is unit-testable; the app layer feeds it `NSScreen` measurements.
+public struct PanelGeometry: Equatable, Sendable {
+    public static let panelWidth: CGFloat = 320
+    public static let minContentHeight: CGFloat = 160
+    public static let maxContentHeight: CGFloat = 560
+    public static let cornerRadius: CGFloat = 20
+    /// How long the mouse may be outside hotspot and panel before the panel collapses.
+    public static let collapseGrace: TimeInterval = 0.25
+
+    /// Notch width to assume when a screen reports a camera housing but no
+    /// auxiliary top areas (14"/16" notches measure about 180–200 pt).
+    static let fallbackNotchWidth: CGFloat = 200
+    /// Height of the virtual notch when the menu bar auto-hides.
+    static let fallbackMenuBarHeight: CGFloat = 24
+
+    /// Full screen frame (AppKit coordinates, bottom-left origin).
+    public let screenFrame: CGRect
+    /// Frame minus menu bar and Dock.
+    public let visibleFrame: CGRect
+    /// The real notch rect at the top edge, nil on notchless screens.
+    public let notch: CGRect?
+
+    public init(screenFrame: CGRect, visibleFrame: CGRect, notch: CGRect?) {
+        self.screenFrame = screenFrame
+        self.visibleFrame = visibleFrame
+        self.notch = notch
+    }
+
+    /// The card area's height, clamped. Taller cards scroll inside the panel.
+    public static func clampedHeight(_ contentHeight: CGFloat) -> CGFloat {
+        min(max(contentHeight, minContentHeight), maxContentHeight)
+    }
+
+    /// The notch as a screen reports it: `safeAreaTop` is
+    /// `NSScreen.safeAreaInsets.top`, the auxiliary areas are the usable menu
+    /// bar strips either side of the camera housing.
+    public static func notchRect(screenFrame: CGRect,
+                                 safeAreaTop: CGFloat,
+                                 auxiliaryTopLeftArea: CGRect?,
+                                 auxiliaryTopRightArea: CGRect?) -> CGRect? {
+        guard safeAreaTop > 0 else { return nil }
+        let width: CGFloat
+        let minX: CGFloat
+        if let left = auxiliaryTopLeftArea, let right = auxiliaryTopRightArea,
+           right.minX > left.maxX {
+            width = right.minX - left.maxX
+            minX = left.maxX
+        } else {
+            width = fallbackNotchWidth
+            minX = screenFrame.midX - width / 2
+        }
+        return CGRect(x: minX, y: screenFrame.maxY - safeAreaTop,
+                      width: width, height: safeAreaTop)
+    }
+
+    /// Where hovering opens the panel: the real notch, or a virtual one at
+    /// top-center (notch-wide, menu-bar tall) on screens without a notch.
+    public var hotspot: CGRect {
+        if let notch { return notch }
+        let menuBar = max(0, screenFrame.maxY - visibleFrame.maxY)
+        let height = menuBar > 0 ? menuBar : Self.fallbackMenuBarHeight
+        return CGRect(x: screenFrame.midX - Self.fallbackNotchWidth / 2,
+                      y: screenFrame.maxY - height,
+                      width: Self.fallbackNotchWidth, height: height)
+    }
+
+    /// The panel's window frame: flush with the screen's top edge, centered on
+    /// the hotspot. A strip as tall as the notch comes first (it reads as the
+    /// notch growing), then the card area.
+    public func panelFrame(contentHeight: CGFloat) -> CGRect {
+        let hotspot = hotspot
+        let size = CGSize(width: Self.panelWidth,
+                          height: hotspot.height + Self.clampedHeight(contentHeight))
+        return CGRect(x: hotspot.midX - size.width / 2, y: screenFrame.maxY - size.height,
+                      width: size.width, height: size.height)
+    }
+
+    /// Whether the mouse is still over the hotspot or the panel, edges
+    /// included (`CGRect.contains` excludes the max edges).
+    public static func keepsPanelOpen(mouse: CGPoint, hotspot: CGRect, panel: CGRect) -> Bool {
+        [hotspot, panel].contains {
+            (($0.minX)...($0.maxX)).contains(mouse.x) && (($0.minY)...($0.maxY)).contains(mouse.y)
+        }
+    }
+}
