@@ -160,7 +160,7 @@ final class PanelController {
         messageLabel.isHidden = text == nil
         guard let text else { return }
         messageLabel.stringValue = text
-        resize(contentHeight: PanelGeometry.minContentHeight, animated: true)
+        resize(contentHeight: 0, animated: true)  // 0 → the panel's minimum height
     }
 
     /// The deck path of the card on screen, or nil when there is no card (the
@@ -275,7 +275,7 @@ final class PanelController {
     /// shape follows with the animation, so growing reveals it and shrinking
     /// leaves black behind it for a moment.
     func resize(contentHeight: CGFloat, animated: Bool) {
-        self.contentHeight = PanelGeometry.clampedHeight(contentHeight)
+        self.contentHeight = contentHeight
         guard isOpen, let geometry else { return }
         let target = geometry.cardSize(contentHeight: self.contentHeight, showsRoute: routeVisible)
         if animated && !reduceMotion {
@@ -321,16 +321,17 @@ final class PanelController {
     private func layoutContent() {
         guard let geometry else { return }
         let stage = geometry.stageFrame.size
-        let content = PanelGeometry.clampedHeight(contentHeight)
+        let content = geometry.contentAreaHeight(for: contentHeight)
         let row = PanelGeometry.routeRowHeight
         routeRow.frame = CGRect(x: 0, y: stage.height - geometry.hotspot.height - row,
                                 width: stage.width, height: row)
         let labelHeight = ceil(routeLabel.intrinsicContentSize.height)
         routeLabel.frame = CGRect(x: Self.routeInset, y: (row - labelHeight) / 2,
                                   width: stage.width - 2 * Self.routeInset, height: labelHeight)
-        let top = geometry.hotspot.height + (routeVisible ? row : 0)
-        contentView.frame = CGRect(x: 0, y: stage.height - top - content,
-                                   width: stage.width, height: content)
+        // Equal padding (the notch's height) above, left, right and below.
+        let top = geometry.padding + (routeVisible ? row : 0)
+        contentView.frame = CGRect(x: geometry.padding, y: stage.height - top - content,
+                                   width: geometry.contentWidth, height: content)
     }
 
     /// Back to the stage before a motion: same top edge and centre as any rest

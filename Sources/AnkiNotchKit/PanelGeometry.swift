@@ -5,8 +5,10 @@ import Foundation
 /// AppKit so it is unit-testable; the app layer feeds it `NSScreen` measurements.
 public struct PanelGeometry: Equatable, Sendable {
     public static let panelWidth: CGFloat = 480
-    public static let minContentHeight: CGFloat = 160
-    public static let maxContentHeight: CGFloat = 560
+    /// The panel's height bounds, measured from the TOP OF THE SCREEN (the
+    /// notch is part of it), route row not counted.
+    public static let minPanelHeight: CGFloat = 200
+    public static let maxPanelHeight: CGFloat = 600
     public static let cornerRadius: CGFloat = 20
     /// The deck-route row between the notch strip and the card. It sits
     /// outside the content-height clamp.
@@ -38,11 +40,6 @@ public struct PanelGeometry: Equatable, Sendable {
         self.screenFrame = screenFrame
         self.visibleFrame = visibleFrame
         self.notch = notch
-    }
-
-    /// The card area's height, clamped. Taller cards scroll inside the panel.
-    public static func clampedHeight(_ contentHeight: CGFloat) -> CGFloat {
-        min(max(contentHeight, minContentHeight), maxContentHeight)
     }
 
     /// The notch as a screen reports it: `safeAreaTop` is
@@ -78,12 +75,30 @@ public struct PanelGeometry: Equatable, Sendable {
                       width: Self.fallbackNotchWidth, height: height)
     }
 
-    /// The card's size: a strip as tall as the notch (it reads as the notch
-    /// growing), the route row when shown, then the card area, clamped.
+    /// Padding on all four sides of the content, as tall as the notch: the top
+    /// padding is what keeps content from sitting behind the camera housing,
+    /// and the others match it.
+    public var padding: CGFloat { hotspot.height }
+
+    /// Width of the card content inside the side padding.
+    public var contentWidth: CGFloat { Self.panelWidth - 2 * padding }
+
+    /// The card content's height for a page that is `contentHeight` tall. The
+    /// panel is bounded from the top of the screen, so the padding above and
+    /// below comes out of the bounds and a taller card scrolls inside.
+    public func contentAreaHeight(for contentHeight: CGFloat) -> CGFloat {
+        let chrome = 2 * padding
+        let panel = min(max(contentHeight + chrome, Self.minPanelHeight), Self.maxPanelHeight)
+        return panel - chrome
+    }
+
+    /// The panel's size: notch-height padding above (the strip that reads as
+    /// the notch growing), the route row when shown, the content, and the same
+    /// padding below.
     public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
         CGSize(width: Self.panelWidth,
-               height: hotspot.height + (showsRoute ? Self.routeRowHeight : 0)
-                   + Self.clampedHeight(contentHeight))
+               height: padding + (showsRoute ? Self.routeRowHeight : 0)
+                   + contentAreaHeight(for: contentHeight) + padding)
     }
 
     /// The panel's window frame at rest: flush with the screen's top edge and
@@ -97,7 +112,7 @@ public struct PanelGeometry: Equatable, Sendable {
     /// never changes the window). Same top edge and centre as every rest
     /// frame, so shrinking the window to a rest frame moves nothing.
     public var stageFrame: CGRect {
-        frame(for: cardSize(contentHeight: Self.maxContentHeight, showsRoute: true))
+        frame(for: cardSize(contentHeight: Self.maxPanelHeight, showsRoute: true))
     }
 
     private func frame(for size: CGSize) -> CGRect {

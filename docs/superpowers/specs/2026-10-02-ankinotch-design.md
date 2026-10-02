@@ -50,12 +50,14 @@ notifications, launch-at-login, updates, sync.
 - Borderless `NSPanel` above the menu bar (`mainMenu + 1`), top edge flush with
   the top of the screen, horizontally centered on the notch.
 - Width fixed at 480 pt. Height follows the card: the web view reports its
-  content height; the panel is clamped to **160–560 pt** and animates height
-  changes (front→back, next card). A taller card scrolls inside the panel.
-- Shape: black strip the height of the notch/menu bar (so it reads as the notch
-  growing), then the card, with rounded bottom corners (~20 pt). The card area
-  is the web view only — no padding, no controls.
-
+  content height; the panel's height, **measured from the top of the screen
+  (notch included)**, is clamped to **200–600 pt** and animates height changes
+  (front→back, next card). A taller card scrolls inside the panel.
+- Shape: black, flush with the top of the screen so it reads as the notch
+  growing, with rounded bottom corners (~20 pt). The card sits inside padding
+  as tall as the notch on all four sides: the top padding keeps content out of
+  the camera housing, the others match it. The card area is the web view only,
+  no controls.
 - Motion: the panel **grows out of the notch**. The black shape starts as the
   notch's own size and springs out to card size (about 0.4 s, 2 pt settle); the
   card content is laid out once at its final size and revealed by the shape
@@ -184,5 +186,5 @@ a UI:
 
 - Whether the answer side should hide the repeated question — deliberately
   left as Anki renders it for v1.
-- Panel width (480) and height clamp (160–560) are starting values; both are
+- Panel width (480) and height clamp (200–600, from the top of the screen) are starting values; both are
   single constants.
