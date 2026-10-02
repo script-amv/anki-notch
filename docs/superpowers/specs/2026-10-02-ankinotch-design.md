@@ -36,13 +36,14 @@ notifications, launch-at-login, updates, sync.
 - An invisible hotspot window sits over the notch of each screen (the notch
   rect from `NSScreen` safe-area/auxiliary areas). On screens without a notch,
   a virtual hotspot at top-center, about 200 pt wide and one menu-bar high.
-- Hover over the hotspot → the panel expands on **that** screen. Expanding
-  records `NSWorkspace.shared.frontmostApplication`, activates AnkiNotch and
-  makes the panel the key window, so keystrokes reach it.
+- Hover over the hotspot → the panel expands on **that** screen and becomes the
+  key window, so keystrokes reach it. The panel is a **non-activating** panel:
+  AnkiNotch never activates itself, because macOS refuses to bring an app that
+  was never clicked to the front on a mere hover. The app you were in therefore
+  stays the active one the whole time, and collapsing the panel hands the
+  keyboard straight back to its window — no focus bookkeeping.
 - The mouse leaving the union of hotspot and panel starts a ~250 ms grace
-  timer; re-entering cancels it. When it fires the panel hides and the
-  recorded app is re-activated — unless the user already switched to another
-  app in the meantime, in which case focus is left alone.
+  timer; re-entering cancels it. When it fires the panel hides.
 
 ### Panel
 
@@ -134,8 +135,8 @@ a UI:
   - `AnkiMedia` — media path validation and MIME types.
   - `PanelGeometry` — placement under the notch and the height clamp.
 - **`AnkiNotch`** (executable, AppKit)
-  - `NotchHotspotController`, `PanelController` (hover, grace timer, focus
-    hand-back, animated resizing, key monitor), `CardWebView` +
+  - `NotchHotspotController`, `PanelController` (hover, grace timer,
+    animated resizing, key monitor), `CardWebView` +
     `MediaSchemeHandler`, `StatusItem` (Quit), app entry point.
 
 ## Testing

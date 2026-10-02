@@ -170,7 +170,7 @@ Behaviour of `handle(_:)`: `.space` on `front` → `showAnswer` → `back`; `.sp
 
 ---
 
-### Task 5: AppKit shell — hotspot, panel, focus, Quit
+### Task 5: AppKit shell — hotspot, panel, key focus, Quit
 
 UI code: no unit tests (TDD exception — AppKit windows); verified manually.
 
@@ -184,12 +184,12 @@ UI code: no unit tests (TDD exception — AppKit windows); verified manually.
   - `@MainActor final class PanelController { init(); var contentView: NSView (host for the card); var isVisible: Bool; func show(on screen: NSScreen); func hide(); func resize(contentHeight: CGFloat, animated: Bool); var onKey: ((ReviewKey) -> Void)? }`
 - `main.swift` sets `NSApp.setActivationPolicy(.accessory)` and runs `AppDelegate`; `StatusItem` has a single **Quit AnkiNotch** item.
 
-Behaviour: `show` records `NSWorkspace.shared.frontmostApplication` (when not AnkiNotch), calls `NSApp.activate(ignoringOtherApps: true)`, and `makeKeyAndOrderFront`; the panel is a borderless `NSPanel` subclass overriding `canBecomeKey` → true, level `.mainMenu + 1`, transparent background, content with a black top strip of `hotspot.height` then the card area, bottom corners rounded 20 pt. While visible, a 100 ms timer checks `NSEvent.mouseLocation` with `keepsPanelOpen`; after 250 ms continuously outside it calls `hide`. `hide` orders the panel out and re-activates the recorded app only if AnkiNotch is still the frontmost app. A local `NSEvent` key monitor (installed in `show`, removed in `hide`) maps unmodified space (keyCode 49) → `.space` and `1` → `.one`, calls `onKey`, and returns nil to consume; all other events pass through.
+Behaviour: `show` calls `makeKeyAndOrderFront` without activating the app; the panel is a borderless, `.nonactivatingPanel` `NSPanel` subclass overriding `canBecomeKey` → true, level `.mainMenu + 1`, transparent background, content with a black top strip of `hotspot.height` then the card area, bottom corners rounded 20 pt. While visible, a 100 ms timer checks `NSEvent.mouseLocation` with `keepsPanelOpen`; after 250 ms continuously outside it calls `hide`. `hide` just orders the panel out (the previously active app never stopped being active). A local `NSEvent` key monitor (installed in `show`, removed in `hide`) maps unmodified space (keyCode 49) → `.space` and `1` → `.one`, calls `onKey`, and returns nil to consume; all other events pass through.
 
 - [ ] **Step 1: Implement** the files above; for now `AppDelegate` shows the panel with a placeholder `NSTextField` ("AnkiNotch") of content height 200 on hover.
 - [ ] **Step 2: Run `make build`.** Expected: builds with no warnings.
-- [ ] **Step 3: Manual check (`make run`):** hovering the notch (or top-center on an external screen) expands the panel under it; moving away collapses it after ≈¼ s; hovering again re-expands; your previous app gets focus back after collapse (type a character into it to confirm); the status item's Quit exits; no Dock icon appears.
-- [ ] **Step 4: Commit** — `git add -A && git commit -m "Add notch hotspot, panel, focus hand-back and Quit item"`.
+- [ ] **Step 3: Manual check (`make run`):** hovering the notch (or top-center on an external screen) expands the panel under it; moving away collapses it after ≈¼ s; hovering again re-expands; the previously active app stays frontmost throughout and can be typed into after collapse; the status item's Quit exits; no Dock icon appears.
+- [ ] **Step 4: Commit** — `git add -A && git commit -m "Add notch hotspot, panel, non-activating key panel and Quit item"`.
 
 ---
 

@@ -18,3 +18,7 @@ build:
 
 run:
 	swift run AnkiNotch
+
+# Release build -> ad-hoc signed AnkiNotch.app -> ~/Applications
+app:
+	scripts/make-app.sh

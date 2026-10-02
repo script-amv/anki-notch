@@ -1,15 +1,16 @@
 import AppKit
 import AnkiNotchKit
 
-/// The borderless window that hangs from the notch. Key-able on purpose: on
-/// hover AnkiNotch activates itself so that space and `1` reach the panel.
+/// The borderless window that hangs from the notch. It is a non-activating
+/// panel that can still become key: space and `1` reach it while the app that
+/// was in front stays the active one. (Activating AnkiNotch instead does not
+/// work: macOS refuses an app that was never clicked taking the front on hover.)
 private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
 /// Owns the panel: shows it under the notch, collapses it when the mouse has
-/// been away for the grace period, hands keyboard focus back to the app that
-/// had it, and turns space / `1` into `ReviewKey`s.
+/// been away for the grace period, and turns space / `1` into `ReviewKey`s.
 @MainActor
 final class PanelController {
     /// Host for whatever the panel shows below the notch-height strip.
@@ -21,7 +22,6 @@ final class PanelController {
     private let messageLabel = NSTextField(labelWithString: "")
     private var geometry: PanelGeometry?
     private var contentHeight: CGFloat = 200
-    private var previousApp: NSRunningApplication?
     private var hoverTimer: Timer?
     private var outsideSince: Date?
     private var keyMonitor: Any?
@@ -29,7 +29,7 @@ final class PanelController {
     var isVisible: Bool { panel.isVisible }
 
     init() {
-        panel = NotchPanel(contentRect: .zero, styleMask: [.borderless],
+        panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -83,12 +83,6 @@ final class PanelController {
         contentView.autoresizingMask = [.width, .height]
         contentView.frame = CGRect(x: 0, y: 0, width: frame.width,
                                    height: frame.height - geometry.hotspot.height)
-
-        // Remember who had the keyboard so it can go back there.
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        previousApp = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier
-            ? nil : frontmost
-        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         startWatchingMouse()
         installKeyMonitor()
@@ -101,14 +95,9 @@ final class PanelController {
         outsideSince = nil
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        // The previous app never stopped being active, so ordering the panel
+        // out is all it takes for its window to get the keyboard back.
         panel.orderOut(nil)
-        // Only give focus back if it is still ours: the user may already have
-        // clicked into another app.
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier
-            == ProcessInfo.processInfo.processIdentifier {
-            previousApp?.activate()
-        }
-        previousApp = nil
     }
 
     /// Resize to a card height (clamped by the geometry), staying flush with
