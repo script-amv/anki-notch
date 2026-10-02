@@ -8,6 +8,9 @@ public struct PanelGeometry: Equatable, Sendable {
     public static let minContentHeight: CGFloat = 160
     public static let maxContentHeight: CGFloat = 560
     public static let cornerRadius: CGFloat = 20
+    /// The deck-route row between the notch strip and the card. It sits
+    /// outside the content-height clamp.
+    public static let routeRowHeight: CGFloat = 22
     /// How long the mouse may be outside hotspot and panel before the panel collapses.
     public static let collapseGrace: TimeInterval = 0.25
     /// How long the mouse must rest on the notch before the panel opens, so
@@ -76,23 +79,25 @@ public struct PanelGeometry: Equatable, Sendable {
     }
 
     /// The card's size: a strip as tall as the notch (it reads as the notch
-    /// growing), then the card area, clamped.
-    public func cardSize(contentHeight: CGFloat) -> CGSize {
+    /// growing), the route row when shown, then the card area, clamped.
+    public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
         CGSize(width: Self.panelWidth,
-               height: hotspot.height + Self.clampedHeight(contentHeight))
+               height: hotspot.height + (showsRoute ? Self.routeRowHeight : 0)
+                   + Self.clampedHeight(contentHeight))
     }
 
     /// The panel's window frame at rest: flush with the screen's top edge and
     /// centered on the hotspot.
-    public func panelFrame(contentHeight: CGFloat) -> CGRect {
-        frame(for: cardSize(contentHeight: contentHeight))
+    public func panelFrame(contentHeight: CGFloat, showsRoute: Bool = false) -> CGRect {
+        frame(for: cardSize(contentHeight: contentHeight, showsRoute: showsRoute))
     }
 
-    /// The largest the panel can be: the window while it animates, so the
-    /// shape can grow and shrink inside it. Same top edge and centre as every
-    /// rest frame, so shrinking the window to a rest frame moves nothing.
+    /// The largest the panel can be, route row included: the window while it
+    /// animates, so the shape can grow and shrink inside it (toggling the row
+    /// never changes the window). Same top edge and centre as every rest
+    /// frame, so shrinking the window to a rest frame moves nothing.
     public var stageFrame: CGRect {
-        frame(for: cardSize(contentHeight: Self.maxContentHeight))
+        frame(for: cardSize(contentHeight: Self.maxContentHeight, showsRoute: true))
     }
 
     private func frame(for size: CGSize) -> CGRect {
@@ -106,5 +111,11 @@ public struct PanelGeometry: Equatable, Sendable {
         [hotspot, panel].contains {
             (($0.minX)...($0.maxX)).contains(mouse.x) && (($0.minY)...($0.maxY)).contains(mouse.y)
         }
+    }
+
+    /// Whether a click (screen coordinates) is on the notch, edges included.
+    public static func isNotchClick(_ point: CGPoint, hotspot: CGRect) -> Bool {
+        (hotspot.minX...hotspot.maxX).contains(point.x)
+            && (hotspot.minY...hotspot.maxY).contains(point.y)
     }
 }
