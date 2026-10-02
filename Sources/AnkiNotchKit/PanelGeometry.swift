@@ -118,4 +118,15 @@ public struct PanelGeometry: Equatable, Sendable {
         (hotspot.minX...hotspot.maxX).contains(point.x)
             && (hotspot.minY...hotspot.maxY).contains(point.y)
     }
+
+    /// Whether a click (screen coordinates) is on the route row: the strip
+    /// under the notch, as wide as the panel. The notch's own bottom edge
+    /// belongs to the notch, not the row.
+    public func isRouteRowClick(_ point: CGPoint) -> Bool {
+        let row = CGRect(x: hotspot.midX - Self.panelWidth / 2,
+                         y: hotspot.minY - Self.routeRowHeight,
+                         width: Self.panelWidth, height: Self.routeRowHeight)
+        return (row.minX...row.maxX).contains(point.x)
+            && point.y >= row.minY && point.y < row.maxY
+    }
 }

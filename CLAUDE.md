@@ -123,6 +123,18 @@ the search paths for the Swift Testing framework (see the Makefile).
   (`event.window === panel`, point inside the hotspot rect), never on the
   hotspot window. A click on the notch toggles the route row (in memory, reset
   on relaunch); clicks anywhere else pass through.
+- **The deck choice is `ReviewSession.chosenDeck`**, in memory only (a relaunch
+  starts on all decks). A chosen deck is entered alone, with no due filter (an
+  empty deck ends at `All done` by itself, and the choice stays so the next
+  hover retries it); a parent includes its subdecks. A chosen deck missing from
+  `deckNames` clears the choice and falls back to all decks. A choice made while
+  a request is in flight sets `restartPending` and is applied when it finishes.
+- **The deck menu is a native `NSMenu` popped under the route row** (`DeckMenu`,
+  `DeckTree`). `popUp` blocks in its own tracking loop: never call it inside the
+  click monitor (schedule a task), and keep `menuIsOpen` set around it so the
+  hover check and the review keys stand down; reset `outsideSince` afterwards.
+  The row is clickable only while visible. In `All done` with a deck chosen it
+  stays up, naming that deck, so the user can pick another.
 - **Audio is out of v1**: `[sound:…]`, `[anki:play:…]` and TTS blocks are stripped.
 
 ## Testing against real Anki

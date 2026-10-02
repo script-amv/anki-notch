@@ -45,6 +45,11 @@ final class PanelController {
     /// Host for whatever the panel shows below the notch-height strip.
     let contentView = NSView()
     var onKey: ((ReviewKey) -> Void)?
+    /// Anki's deck names and the current choice, for the picker menu; nil
+    /// when Anki can't be reached (no menu then).
+    var loadDecks: (() async -> (decks: [String], chosen: String?)?)?
+    /// The user picked a deck from the menu; nil is "All decks".
+    var onPickDeck: ((String?) -> Void)?
 
     private let panel: NotchPanel
     private let root = NSView()
@@ -82,6 +87,11 @@ final class PanelController {
     private var showsDeckRoute = false
     private var deckRoute: String?
     private var keysArmedAt = Date.distantFuture
+    /// A deck menu is being fetched or shown: a second click does nothing.
+    private var isPresentingDeckMenu = false
+    /// The menu is tracking. It owns the keyboard and the mouse, so the hover
+    /// check and the review keys stand down until it closes.
+    private var menuIsOpen = false
 
     var isVisible: Bool { isOpen }
 
@@ -478,7 +488,7 @@ final class PanelController {
     }
 
     private func checkMouse() {
-        guard let geometry else { return }
+        guard let geometry, !menuIsOpen else { return }
         let inside = PanelGeometry.keepsPanelOpen(
             mouse: NSEvent.mouseLocation, hotspot: geometry.hotspot,
             panel: geometry.panelFrame(contentHeight: contentHeight, showsRoute: routeVisible))
@@ -493,23 +503,47 @@ final class PanelController {
 
     // MARK: Clicks
 
-    /// Only a left click that lands on the panel and inside the notch rect
-    /// flips the route row; clicks on the card or in another window of this app
-    /// pass through untouched.
+    /// Only a left click that lands on the panel counts: on the notch rect it
+    /// flips the route row, on the visible route row it opens the deck menu.
+    /// Clicks on the card or in another window of this app pass through
+    /// untouched.
     private func installClickMonitor() {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             let handled = MainActor.assumeIsolated {
                 guard let self, event.window === self.panel, let geometry = self.geometry
                 else { return false }
                 let point = self.panel.convertPoint(toScreen: event.locationInWindow)
-                guard PanelGeometry.isNotchClick(point, hotspot: geometry.hotspot) else {
-                    return false
+                if PanelGeometry.isNotchClick(point, hotspot: geometry.hotspot) {
+                    self.toggleDeckRoute()
+                    return true
                 }
-                self.toggleDeckRoute()
-                return true
+                if self.routeVisible, geometry.isRouteRowClick(point) {
+                    // After the event: a menu tracks its own loop, which must
+                    // not run inside this monitor.
+                    Task { @MainActor in await self.showDeckMenu() }
+                    return true
+                }
+                return false
             }
             return handled ? nil : event
         }
+    }
+
+    // MARK: Deck menu
+
+    private func showDeckMenu() async {
+        guard isOpen, !isPresentingDeckMenu, let loadDecks else { return }
+        isPresentingDeckMenu = true
+        defer { isPresentingDeckMenu = false }
+        guard let data = await loadDecks(), isOpen, routeVisible else { return }
+        let menu = DeckMenu.make(decks: data.decks, chosen: data.chosen) { [weak self] deck in
+            self?.onPickDeck?(deck)
+        }
+        menuIsOpen = true
+        // Blocks until the menu closes; the action has run by then.
+        menu.popUp(positioning: nil, at: NSPoint(x: Self.routeInset, y: 0), in: routeRow)
+        menuIsOpen = false
+        outsideSince = nil  // the grace period starts from here, not from before the menu
     }
 
     // MARK: Keys
@@ -523,7 +557,7 @@ final class PanelController {
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let handled = MainActor.assumeIsolated {
-                guard let self, event.window === self.panel,
+                guard let self, !self.menuIsOpen, event.window === self.panel,
                       let key = Self.reviewKey(for: event) else { return false }
                 // A held key must not race through cards: only the first press counts.
                 if !event.isARepeat { self.deliver(key) }

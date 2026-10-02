@@ -134,3 +134,26 @@ import Testing
         #expect(!click(756, 949))     // just below it, on the route row / card
     }
 }
+
+@Suite struct RouteRowClickTests {
+    private let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    private let notch = CGRect(x: 656, y: 950, width: 200, height: 32)
+    private var geometry: PanelGeometry {
+        PanelGeometry(screenFrame: screen, visibleFrame: screen, notch: notch)
+    }
+
+    @Test func rowIsTheStripUnderTheNotchAcrossThePanelWidth() {
+        #expect(geometry.isRouteRowClick(CGPoint(x: 700, y: 940)))
+        #expect(geometry.isRouteRowClick(CGPoint(x: 600, y: 930)))   // beside the notch's width
+        #expect(geometry.isRouteRowClick(CGPoint(x: 596, y: 928)))   // left and bottom edges
+        #expect(geometry.isRouteRowClick(CGPoint(x: 916, y: 940)))   // right edge
+    }
+
+    @Test func notchItselfAndEverythingElseIsNotTheRow() {
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 950)))  // the notch's bottom edge
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 965)))
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 927)))  // the card below
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 595, y: 940)))
+        #expect(!geometry.isRouteRowClick(CGPoint(x: 917, y: 940)))
+    }
+}

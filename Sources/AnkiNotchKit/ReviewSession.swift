@@ -43,11 +43,16 @@ public final class ReviewSession {
     /// Anki's media folder, fetched when a review starts. Nil just means
     /// images won't load; the card text still renders.
     public private(set) var mediaDir: String?
+    /// The deck picked from the route row; nil means every deck. In memory
+    /// only: a relaunch starts on all decks again.
+    public private(set) var chosenDeck: String?
 
     private let client: any AnkiConnectClient
     private let stalePollInterval: Duration
     private var remainingDecks: [String] = []
     private var isOpening = false
+    private var isHandling = false
+    private var restartPending = false
 
     /// Re-reads of the current card allowed after an answer while Anki is
     /// still on the card just answered, before it is accepted as legitimately
@@ -71,17 +76,62 @@ public final class ReviewSession {
         case .idle, .allDone, .failed: await start()
         case .front(let card), .back(let card): await verify(shown: card)
         }
+        await restartIfChoiceWasMadeMeanwhile()
+    }
+
+    /// Review only `deck` (a parent includes its subdecks), or every deck for
+    /// nil. Restarts the session on it: Anki owns the queue, so nothing is
+    /// lost. Chosen while a request is in flight, it is applied when that
+    /// finishes. Choosing what is already chosen, with a card up, does nothing.
+    public func choose(_ deck: String?) async {
+        if deck == chosenDeck {
+            switch phase {
+            case .front, .back, .submitting, .loading: return
+            case .idle, .allDone, .failed: break
+            }
+        }
+        chosenDeck = deck
+        if isOpening || isHandling || phase == .loading || isSubmitting {
+            restartPending = true
+            return
+        }
+        isOpening = true
+        defer { isOpening = false }
+        await start()
+    }
+
+    /// Anki's deck names, for the picker; nil when Anki can't be reached (the
+    /// menu then doesn't open, and the panel's own line says why).
+    public func availableDecks() async -> [String]? {
+        try? await client.deckNames()
     }
 
     /// Space flips on the front and answers Good on the back; `1` answers
     /// Again on the back. Every other combination does nothing.
     public func handle(_ key: ReviewKey) async {
+        isHandling = true
         switch (phase, key) {
         case (.front(let card), .space): await flip(card)
         case (.back, .space): await answer(.good)
         case (.back, .one): await answer(.again)
         default: break
         }
+        isHandling = false
+        await restartIfChoiceWasMadeMeanwhile()
+    }
+
+    private var isSubmitting: Bool {
+        if case .submitting = phase { return true }
+        return false
+    }
+
+    private func restartIfChoiceWasMadeMeanwhile() async {
+        guard restartPending else { return }
+        restartPending = false
+        let wasOpening = isOpening
+        isOpening = true
+        defer { isOpening = wasOpening }
+        await start()
     }
 
     // MARK: Flow
@@ -90,10 +140,17 @@ public final class ReviewSession {
         phase = .loading
         remainingDecks = []
         do {
-            let topLevel = try await client.deckNames().filter { !$0.contains("::") }
-            let due = Set(try await client.deckStats(decks: topLevel)
-                .filter { $0.dueTotal > 0 }.map(\.name))
-            remainingDecks = topLevel.filter(due.contains)
+            let names = try await client.deckNames()
+            if let chosen = chosenDeck, names.contains(chosen) {
+                // No due filter: an empty deck ends at "All done" by itself.
+                remainingDecks = [chosen]
+            } else {
+                chosenDeck = nil  // never chosen, or deleted/renamed in Anki since
+                let topLevel = names.filter { !$0.contains("::") }
+                let due = Set(try await client.deckStats(decks: topLevel)
+                    .filter { $0.dueTotal > 0 }.map(\.name))
+                remainingDecks = topLevel.filter(due.contains)
+            }
             // Only after Anki has answered once: with Anki frozen this must not
             // add a second timeout before the panel can say so.
             mediaDir = try? await client.mediaDirPath()

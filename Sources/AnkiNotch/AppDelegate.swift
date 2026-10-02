@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel?.resize(contentHeight: height, animated: true)
         }
         panel.onKey = { key in Task { await session.handle(key) } }
+        panel.loadDecks = {
+            guard let decks = await session.availableDecks() else { return nil }
+            return (decks, session.chosenDeck)
+        }
+        panel.onPickDeck = { deck in Task { await session.choose(deck) } }
 
         hotspots = NotchHotspotController { screen in
             guard !panel.isVisible else { return }
@@ -44,17 +49,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard ProcessInfo.processInfo.environment["ANKINOTCH_MOCK"] == "1" else {
             return AnkiConnectHTTPClient()
         }
-        let cards = (0..<8).map { index -> CurrentCard in
-            let base = MockAnkiConnectClient.sampleCards[index % 2]
-            // Nested names so the route row (and its shortening) can be tried.
-            let deck = ["Sample", "Languages::Japanese::Core",
-                        "Languages::Japanese::Core::Kanji::Grade 1::Readings"][index % 3]
-            return CurrentCard(cardId: Int64(index + 1),
-                               question: "\(index + 1). \(base.question)",
-                               answer: "\(index + 1). \(base.answer)",
-                               css: base.css, buttons: base.buttons, deckName: deck)
+        // Nested decks so the route row (and its shortening) and the deck
+        // picker can be tried.
+        let names = ["Sample", "Languages", "Languages::Japanese::Core",
+                     "Languages::Japanese::Core::Kanji::Grade 1::Readings"]
+        var nextId: Int64 = 1
+        let decks = names.map { name -> (name: String, cards: [CurrentCard]) in
+            let cards = (0..<4).map { index -> CurrentCard in
+                let base = MockAnkiConnectClient.sampleCards[index % 2]
+                defer { nextId += 1 }
+                return CurrentCard(cardId: nextId,
+                                   question: "\(nextId). \(base.question)",
+                                   answer: "\(nextId). \(base.answer)",
+                                   css: base.css, buttons: base.buttons, deckName: name)
+            }
+            return (name, cards)
         }
-        return MockAnkiConnectClient(decks: [("Sample", cards)])
+        return MockAnkiConnectClient(decks: decks)
     }
 
     /// Re-renders whenever the session's phase (or media folder) or a setting
@@ -83,7 +94,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.setDeckRoute(card.deckName)
             cardView.show(html: card.answer, css: card.css, mediaDir: session.mediaDir,
                           forceBlackBackground: forceBlack)
-        case .allDone, .failed:
+        case .allDone:
+            // With a deck chosen the row names it, so it can be clicked to
+            // pick another; with all decks done there is nothing to pick.
+            panel.setDeckRoute(session.chosenDeck)
+            panel.setMessage(session.phase.message)
+        case .failed:
             panel.setDeckRoute(nil)
             panel.setMessage(session.phase.message)
         // Keep whatever is on screen: a request is in flight.

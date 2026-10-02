@@ -202,4 +202,95 @@ import Testing
         #expect(await mock.answered.isEmpty)
         #expect(session.phase == .front(c1))
     }
+
+    // MARK: Chosen deck
+
+    @Test func choosingADeckReviewsOnlyThatDeck() async {
+        let b1 = makeCard(2, deck: "B")
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")]), ("B", [b1])])
+        await session.choose("B")
+        #expect(session.chosenDeck == "B")
+        #expect(session.phase == .front(b1))
+        #expect(await mock.enteredDecks == ["B"])
+    }
+
+    @Test func aSubdeckCanBeChosen() async {
+        let c = makeCard(2, deck: "P::Sub")
+        let (session, mock) = make([("P", [makeCard(1, deck: "P")]), ("P::Sub", [c])])
+        await session.choose("P::Sub")
+        #expect(session.phase == .front(c))
+        #expect(await mock.enteredDecks == ["P::Sub"])
+    }
+
+    @Test func choosingMidCardRestartsOnTheNewDeckWithoutAnswering() async {
+        let b1 = makeCard(2, deck: "B")
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")]), ("B", [b1])])
+        await session.open()
+        await session.handle(.space)
+        await session.choose("B")
+        #expect(session.phase == .front(b1))
+        #expect(await mock.answered.isEmpty)
+    }
+
+    @Test func drainingTheChosenDeckIsAllDoneAndTheChoiceStays() async {
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")]), ("B", [makeCard(2, deck: "B")])])
+        await session.choose("B")
+        await session.handle(.space)
+        await session.handle(.space)
+        #expect(session.phase == .allDone)
+        #expect(session.chosenDeck == "B")
+        await session.open()  // the next hover retries the same deck, not "A"
+        #expect(session.phase == .allDone)
+        #expect(await mock.enteredDecks == ["B", "B"])
+    }
+
+    @Test func allDecksReturnsToWalkingEveryDeck() async {
+        let a1 = makeCard(1, deck: "A")
+        let (session, _) = make([("A", [a1]), ("B", [makeCard(2, deck: "B")])])
+        await session.choose("B")
+        await session.choose(nil)
+        #expect(session.chosenDeck == nil)
+        #expect(session.phase == .front(a1))
+    }
+
+    @Test func aChosenDeckThatNoLongerExistsFallsBackToAllDecks() async {
+        let a1 = makeCard(1, deck: "A")
+        let (session, mock) = make([("A", [a1])])
+        await session.choose("Gone")
+        #expect(session.chosenDeck == nil)
+        #expect(session.phase == .front(a1))
+        #expect(await mock.enteredDecks == ["A"])
+    }
+
+    @Test func choosingTheDeckAlreadyChosenWhileACardShowsDoesNothing() async {
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")])])
+        await session.choose("A")
+        await session.handle(.space)
+        await session.choose("A")
+        #expect(session.phase == .back(makeCard(1, deck: "A")))
+        #expect(await mock.enteredDecks == ["A"])
+    }
+
+    @Test func aChoiceMadeDuringAnAnswerIsAppliedWhenItFinishes() async {
+        let b1 = makeCard(3, deck: "B")
+        let (session, mock) = make([
+            ("A", [makeCard(1, deck: "A"), makeCard(2, deck: "A")]), ("B", [b1]),
+        ])
+        await session.open()
+        await session.handle(.space)
+        let answering = Task { await session.handle(.space) }
+        await Task.yield()  // the answer is now in flight: phase .submitting
+        await session.choose("B")
+        await answering.value
+        #expect(session.chosenDeck == "B")
+        #expect(session.phase == .front(b1))
+        #expect(await mock.answered == [MockAnswer(cardId: 1, ease: 3)])
+    }
+
+    @Test func availableDecksListsAnkisDecksAndIsNilWhenUnreachable() async {
+        let (session, mock) = make([("A", []), ("A::Sub", [])])
+        #expect(await session.availableDecks() == ["A", "A::Sub"])
+        await mock.setFailure(.unreachable("down"))
+        #expect(await session.availableDecks() == nil)
+    }
 }
