@@ -17,6 +17,10 @@ Plan: `docs/superpowers/plans/2026-10-02-ankinotch.md`.
   note in `docs/handoff/`, not from the old conversation. If a feature request
   arrives in a long chat, don't start it there: write a handoff note and say so.
 - Bug fixes for a feature you just built can stay in its chat.
+- **"All good, merge to main" means two things:** fast-forward/merge the feature
+  branch into `main`, then run `make app` to overwrite the installed
+  `~/Applications/AnkiNotch.app` (standing permission from the user). Don't kill
+  or relaunch a running instance; say it's still the old build until restarted.
 
 ## Commands
 
