@@ -55,9 +55,11 @@ notifications, launch-at-login, updates, sync.
   (front→back, next card). A taller card scrolls inside the panel.
 - Shape: black, flush with the top of the screen so it reads as the notch
   growing, with rounded bottom corners (~20 pt). The card sits inside padding
-  as tall as the notch on all four sides: the top padding keeps content out of
-  the camera housing, the others match it. The card area is the web view only,
-  no controls.
+  as tall as the notch on the left, right and bottom, and has **no padding
+  above**: it starts at the very top edge (so the middle of its top strip is
+  behind the camera housing). While the deck-route row is shown it adds its own
+  strip under the notch and the card starts below it. The card area is the web
+  view only, no controls.
 - Motion: the panel **grows out of the notch**. The black shape starts as the
   notch's own size and springs out to card size (about 0.4 s, 2 pt settle); the
   card content is laid out once at its final size and revealed by the shape

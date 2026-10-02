@@ -75,29 +75,34 @@ public struct PanelGeometry: Equatable, Sendable {
                       width: Self.fallbackNotchWidth, height: height)
     }
 
-    /// Padding on all four sides of the content, as tall as the notch: the top
-    /// padding is what keeps content from sitting behind the camera housing,
-    /// and the others match it.
+    /// Padding left, right and below the content, as tall as the notch. There
+    /// is none above: with no deck-route row the card starts at the very top
+    /// edge of the screen.
     public var padding: CGFloat { hotspot.height }
 
     /// Width of the card content inside the side padding.
     public var contentWidth: CGFloat { Self.panelWidth - 2 * padding }
 
-    /// The card content's height for a page that is `contentHeight` tall. The
-    /// panel is bounded from the top of the screen, so the padding above and
-    /// below comes out of the bounds and a taller card scrolls inside.
-    public func contentAreaHeight(for contentHeight: CGFloat) -> CGFloat {
-        let chrome = 2 * padding
-        let panel = min(max(contentHeight + chrome, Self.minPanelHeight), Self.maxPanelHeight)
-        return panel - chrome
+    /// What sits above the content: nothing, or, while the deck-route row is
+    /// shown, the notch-high strip plus the row, so the row is readable under
+    /// the camera housing and the card starts below it.
+    public func topInset(showsRoute: Bool) -> CGFloat {
+        showsRoute ? hotspot.height + Self.routeRowHeight : 0
     }
 
-    /// The panel's size: notch-height padding above (the strip that reads as
-    /// the notch growing), the route row when shown, the content, and the same
-    /// padding below.
+    /// The card content's height for a page that is `contentHeight` tall. The
+    /// panel is bounded from the top of the screen, so the bottom padding comes
+    /// out of the bounds and a taller card scrolls inside.
+    public func contentAreaHeight(for contentHeight: CGFloat) -> CGFloat {
+        let panel = min(max(contentHeight + padding, Self.minPanelHeight), Self.maxPanelHeight)
+        return panel - padding
+    }
+
+    /// The panel's size: the route strip above when shown, the content, and
+    /// the padding below.
     public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
         CGSize(width: Self.panelWidth,
-               height: padding + (showsRoute ? Self.routeRowHeight : 0)
+               height: topInset(showsRoute: showsRoute)
                    + contentAreaHeight(for: contentHeight) + padding)
     }
 

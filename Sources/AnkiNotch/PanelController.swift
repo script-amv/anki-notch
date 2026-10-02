@@ -328,8 +328,9 @@ final class PanelController {
         let labelHeight = ceil(routeLabel.intrinsicContentSize.height)
         routeLabel.frame = CGRect(x: Self.routeInset, y: (row - labelHeight) / 2,
                                   width: stage.width - 2 * Self.routeInset, height: labelHeight)
-        // Equal padding (the notch's height) above, left, right and below.
-        let top = geometry.padding + (routeVisible ? row : 0)
+        // Padding (the notch's height) left, right and below; nothing above
+        // unless the route row is showing, which brings its own strip.
+        let top = geometry.topInset(showsRoute: routeVisible)
         contentView.frame = CGRect(x: geometry.padding, y: stage.height - top - content,
                                    width: geometry.contentWidth, height: content)
     }

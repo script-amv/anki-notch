@@ -6,15 +6,15 @@ import Testing
     private let notchedScreen = CGRect(x: 0, y: 0, width: 1512, height: 982)
     private let notch = CGRect(x: 656, y: 950, width: 200, height: 32)
 
-    @Test func theClampIsMeasuredFromTheTopOfTheScreenPaddingIncluded() {
+    @Test func theClampIsMeasuredFromTheTopOfTheScreenWithPaddingOnlyBelow() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
         #expect(geometry.padding == 32)  // as tall as the notch, on all four sides
         #expect(geometry.contentWidth == 416)  // 480 minus 32 each side
-        // Panel bounds 200...600 include 32 above and 32 below the content.
-        #expect(geometry.contentAreaHeight(for: 100) == 136)
+        // Panel bounds 200...600 include the 32 below the content (none above).
+        #expect(geometry.contentAreaHeight(for: 100) == 168)
         #expect(geometry.contentAreaHeight(for: 300) == 300)
-        #expect(geometry.contentAreaHeight(for: 900) == 536)
+        #expect(geometry.contentAreaHeight(for: 900) == 568)
     }
 
     @Test func panelFrameHangsFromTheNotch() {
@@ -22,7 +22,7 @@ import Testing
                                      notch: notch)
         #expect(geometry.hotspot == notch)
         #expect(geometry.panelFrame(contentHeight: 300)
-                == CGRect(x: 516, y: 618, width: 480, height: 364))
+                == CGRect(x: 516, y: 650, width: 480, height: 332))
     }
 
     @Test func notchlessScreenUsesVirtualNotch() {
@@ -31,7 +31,7 @@ import Testing
         let geometry = PanelGeometry(screenFrame: screen, visibleFrame: visible, notch: nil)
         #expect(geometry.hotspot == CGRect(x: 860, y: 1055, width: 200, height: 25))
         #expect(geometry.panelFrame(contentHeight: 160)
-                == CGRect(x: 720, y: 870, width: 480, height: 210))
+                == CGRect(x: 720, y: 880, width: 480, height: 200))
     }
 
     @Test func virtualNotchIs24HighWhenMenuBarAutoHides() {
@@ -78,7 +78,7 @@ import Testing
     @Test func stageFrameIsTheLargestPanelHangingFromTheNotch() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
-        #expect(geometry.stageFrame == CGRect(x: 516, y: 360, width: 480, height: 622))
+        #expect(geometry.stageFrame == CGRect(x: 516, y: 328, width: 480, height: 654))
         // Every rest frame fits inside it with the same top edge and centre.
         let rest = geometry.panelFrame(contentHeight: 300)
         #expect(geometry.stageFrame.maxY == rest.maxY)
@@ -89,13 +89,13 @@ import Testing
         let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let visible = CGRect(x: 0, y: 0, width: 1920, height: 1055)
         let geometry = PanelGeometry(screenFrame: screen, visibleFrame: visible, notch: nil)
-        #expect(geometry.stageFrame == CGRect(x: 720, y: 458, width: 480, height: 622))
+        #expect(geometry.stageFrame == CGRect(x: 720, y: 433, width: 480, height: 647))
     }
 
-    @Test func cardSizeIsPaddingAroundTheClampedContent() {
+    @Test func cardSizeIsTheClampedContentPlusBottomPaddingAndTheRouteStrip() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
-        #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 480, height: 364))
+        #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 480, height: 332))
         #expect(geometry.cardSize(contentHeight: 10) == CGSize(width: 480, height: 200))
         #expect(geometry.cardSize(contentHeight: 900) == CGSize(width: 480, height: 600))
         #expect(geometry.panelFrame(contentHeight: 300).size
@@ -110,8 +110,8 @@ import Testing
         #expect(geometry.cardSize(contentHeight: 300, showsRoute: true)
                 == CGSize(width: 480, height: 386))
         // The card area keeps its clamp; the row is extra, not part of it.
-        #expect(geometry.cardSize(contentHeight: 900, showsRoute: true).height == 622)
-        #expect(geometry.cardSize(contentHeight: 10, showsRoute: true).height == 222)
+        #expect(geometry.cardSize(contentHeight: 900, showsRoute: true).height == 654)
+        #expect(geometry.cardSize(contentHeight: 10, showsRoute: true).height == 254)
         #expect(geometry.cardSize(contentHeight: 300, showsRoute: false)
                 == geometry.cardSize(contentHeight: 300))
     }
