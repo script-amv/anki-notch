@@ -16,6 +16,12 @@ Plan: `docs/superpowers/plans/2026-10-02-ankinotch.md`.
   (brainstorm → spec → plan → build), starting from the repo and the handoff
   note in `docs/handoff/`, not from the old conversation. If a feature request
   arrives in a long chat, don't start it there: write a handoff note and say so.
+- **Small features skip the written spec and plan.** For a feature this size (a
+  setting, a label, a gesture) brainstorm in chat, agree a short design in the
+  conversation, and **build only when the user says so** (e.g. "build it"). No
+  spec or plan files, no plan-execution ceremony. Reserve written specs and
+  plans for work that restructures the app or adds a subsystem; if unsure
+  whether something is that big, ask.
 - Bug fixes for a feature you just built can stay in its chat.
 - **"All good, merge to main" means two things:** fast-forward/merge the feature
   branch into `main`, then run `make app` to overwrite the installed
