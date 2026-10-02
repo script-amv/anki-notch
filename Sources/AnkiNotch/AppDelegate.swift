@@ -6,20 +6,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItem?
     private var panel: PanelController?
     private var hotspots: NotchHotspotController?
+    private var cardView: CardWebView?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = StatusItem()
         let panel = PanelController()
+        let cardView = CardWebView()
         self.panel = panel
+        self.cardView = cardView
 
-        // Placeholder until the card view is wired in.
-        let label = NSTextField(labelWithString: "AnkiNotch")
-        label.textColor = .white
-        label.alignment = .center
-        label.frame = panel.contentView.bounds
-        label.autoresizingMask = [.width, .minYMargin, .maxYMargin]
-        panel.contentView.addSubview(label)
+        cardView.frame = panel.contentView.bounds
+        cardView.autoresizingMask = [.width, .height]
+        panel.contentView.addSubview(cardView)
+        cardView.onContentHeight = { [weak panel] height in
+            panel?.resize(contentHeight: height, animated: true)
+        }
 
-        hotspots = NotchHotspotController { screen in panel.show(on: screen) }
+        // Temporary wiring until the review session drives the panel.
+        let sample = MockAnkiConnectClient.sampleCards[0]
+        hotspots = NotchHotspotController { screen in
+            cardView.show(html: sample.question, css: sample.css, mediaDir: nil)
+            panel.show(on: screen)
+        }
     }
 }
