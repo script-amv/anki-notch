@@ -36,7 +36,7 @@ notifications, launch-at-login, updates, sync.
 - An invisible hotspot window sits over the notch of each screen (the notch
   rect from `NSScreen` safe-area/auxiliary areas). On screens without a notch,
   a virtual hotspot at top-center, about 200 pt wide and one menu-bar high.
-- Hover over the hotspot → the panel expands on **that** screen and becomes the
+- Hover over the hotspot and rest there for 0.15 s → the panel expands on **that** screen and becomes the
   key window, so keystrokes reach it. The panel is a **non-activating** panel:
   AnkiNotch never activates itself, because macOS refuses to bring an app that
   was never clicked to the front on a mere hover. The app you were in therefore
@@ -66,7 +66,7 @@ notifications, launch-at-login, updates, sync.
 
 "Good" is ease 3 on a four-button card and ease 2 on a three-button card
 (decided from the card's button list, never from a fixed number). "Again" is
-ease 1. Keys are ignored while a request is in flight, so a held key cannot
+ease 1. Space and `1` are ignored for the first 0.25 s after the panel appears, so keystrokes already on their way to the previous app cannot grade a card that has not been seen. Keys are ignored while a request is in flight, so a held key cannot
 double-answer.
 
 ### Review flow (all through AnkiConnect; GUI-driven, which is the only correct queue)
@@ -78,8 +78,16 @@ double-answer.
    Anki's own window shows. A ~100 ms blank panel on that first hover is
    expected.
 2. **Flip:** `guiShowAnswer`.
-3. **Answer:** `guiAnswerCard(ease)`, then immediately `guiCurrentCard` +
-   `guiStartCardTimer` for the next card.
+3. **Answer:** first `guiCurrentCard`: if Anki is no longer on the card the
+   user saw (reviewed in Anki meanwhile), show Anki's card instead and grade
+   nothing — never grade a card the user hasn't seen. Then `guiAnswerCard(ease)`
+   and `guiCurrentCard` + `guiStartCardTimer` for the next card; Anki applies an
+   answer in the background, so if it still reports the card just answered, re-read
+   a few times (5 × 40 ms) before accepting it (a learning card can be due again
+   at once). AnkiConnect answers `false`, not an error, when its reviewer isn't
+   in the state an action needs (`guiShowAnswer`, `guiAnswerCard`,
+   `guiStartCardTimer`, `guiDeckReview`); that is treated as "panel and Anki have
+   drifted apart" and restarts from step 1, never as success.
 4. **"Review is not currently active"** is *success*, not failure: the deck is
    drained → move to the next top-level deck; none left → **All done**.
 5. **Hover again mid-card:** call `guiCurrentCard` and compare card ids. Same
@@ -131,8 +139,8 @@ a UI:
     the protocol only.
   - `ReviewSession` — the state machine: `loading → front → back →
     submitting → front …`, with `allDone` and `unavailable`.
-  - `CardHTML` — DOM wrapper, audio-marker stripping.
-  - `AnkiMedia` — media path validation and MIME types.
+  - `CardDocument` — DOM wrapper, audio-marker stripping.
+  - `MediaFiles` — media path validation and MIME types.
   - `PanelGeometry` — placement under the notch and the height clamp.
 - **`AnkiNotch`** (executable, AppKit)
   - `NotchHotspotController`, `PanelController` (hover, grace timer,
@@ -148,8 +156,8 @@ a UI:
   answers ignored while submitting; unreachable → unavailable; the height
   clamp; DOM wrapper output; audio-marker stripping; media path validation.
 - **Manual checklist for the panel** (cannot be unit-tested): hover expands
-  and takes focus; space and `1` work; leaving collapses and restores the
-  previous app; height animates between sides; terminal-state text shows.
+  and takes focus; space and `1` work; leaving collapses and the previous app
+  still has the keyboard; height animates between sides; terminal-state text shows.
 - **No Xcode on this machine.** `swift test` needs the Command Line Tools'
   Testing framework on its search paths; a Makefile target carries the flags.
 

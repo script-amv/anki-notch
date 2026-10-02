@@ -6,7 +6,7 @@ import Testing
 
     private func make(_ decks: Decks) -> (ReviewSession, MockAnkiConnectClient) {
         let mock = MockAnkiConnectClient(decks: decks)
-        return (ReviewSession(client: mock), mock)
+        return (ReviewSession(client: mock, stalePollInterval: .milliseconds(1)), mock)
     }
 
     @Test func firstOpenEntersFirstDeckWithDueCardsAndShowsFront() async {
@@ -146,5 +146,60 @@ import Testing
         await session.open()
         #expect(session.phase == .failed(.other))
         #expect(session.phase.message == "Anki error")
+    }
+
+    // MARK: Anki and the panel drifting apart
+
+    @Test func answerDoesNotGradeACardAnkiHasMovedPast() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2])])
+        await session.open()
+        await session.handle(.space)
+        #expect(session.phase == .back(c1))
+        await mock.discardCurrentCard()          // the user reviewed c1 in Anki itself
+        await session.handle(.space)
+        #expect(await mock.answerAttempts == 0)  // never grade a card the user didn't see
+        #expect(session.phase == .front(c2))
+    }
+
+    @Test func answerWaitsForAnkiToMoveOnFromTheAnsweredCard() async {
+        let c2 = makeCard(2)
+        let (session, mock) = make([("A", [makeCard(1), c2])])
+        // Anki applies an answer in the background, so right after it the
+        // current card can still be the one just answered.
+        await mock.setStaleReadsAfterAnswer(3)
+        await session.open()
+        await session.handle(.space)
+        await session.handle(.space)
+        #expect(session.phase == .front(c2))
+    }
+
+    @Test func aCardThatReallyComesBackIsAcceptedAfterPolling() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1, makeCard(2)])])
+        await mock.setStaleReadsAfterAnswer(100)  // never moves on within the poll limit
+        await session.open()
+        await session.handle(.space)
+        await session.handle(.space)
+        #expect(session.phase == .front(c1))      // gave up waiting, did not hang
+    }
+
+    @Test func flipWhenAnkiNoLongerReviewsRestarts() async {
+        let (session, mock) = make([("A", [makeCard(1)])])
+        await session.open()
+        await mock.discardCurrentCard()           // Anki's reviewer ended
+        await session.handle(.space)              // guiShowAnswer answers `false`
+        #expect(session.phase == .allDone)
+    }
+
+    @Test func answerAnkiDeclinesRestartsWithoutGrading() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1])])
+        await session.open()
+        await session.handle(.space)
+        await mock.forgetAnswerShown()            // Anki is back on the question side
+        await session.handle(.space)
+        #expect(await mock.answered.isEmpty)
+        #expect(session.phase == .front(c1))
     }
 }

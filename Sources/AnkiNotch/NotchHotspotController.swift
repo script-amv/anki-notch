@@ -53,6 +53,7 @@ final class NotchHotspotController {
 
 private final class HotspotView: NSView {
     private let onEnter: () -> Void
+    private var dwell: DispatchWorkItem?
 
     init(onEnter: @escaping () -> Void) {
         self.onEnter = onEnter
@@ -69,5 +70,19 @@ private final class HotspotView: NSView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
 
-    override func mouseEntered(with event: NSEvent) { onEnter() }
+    /// Opening waits for the mouse to rest on the notch: a pointer merely
+    /// crossing it on the way to a menu would otherwise take the keyboard.
+    override func mouseEntered(with event: NSEvent) {
+        dwell?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.onEnter() }
+        }
+        dwell = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + PanelGeometry.openDwell, execute: item)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        dwell?.cancel()
+        dwell = nil
+    }
 }

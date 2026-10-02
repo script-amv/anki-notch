@@ -25,6 +25,7 @@ final class PanelController {
     private var hoverTimer: Timer?
     private var outsideSince: Date?
     private var keyMonitor: Any?
+    private var keysArmedAt = Date.distantFuture
 
     var isVisible: Bool { panel.isVisible }
 
@@ -83,6 +84,7 @@ final class PanelController {
         contentView.autoresizingMask = [.width, .height]
         contentView.frame = CGRect(x: 0, y: 0, width: frame.width,
                                    height: frame.height - geometry.hotspot.height)
+        keysArmedAt = Date().addingTimeInterval(PanelGeometry.keyArmDelay)
         panel.makeKeyAndOrderFront(nil)
         startWatchingMouse()
         installKeyMonitor()
@@ -144,19 +146,28 @@ final class PanelController {
             guard let key = Self.reviewKey(for: event) else { return event }
             // A held key must not race through cards: only the first press counts.
             if !event.isARepeat {
-                MainActor.assumeIsolated { self?.onKey?(key) }
+                MainActor.assumeIsolated { self?.deliver(key) }
             }
             return nil
         }
     }
 
+    /// Keys just after the panel appears are swallowed, not delivered.
+    private func deliver(_ key: ReviewKey) {
+        guard Date() >= keysArmedAt else { return }
+        onKey?(key)
+    }
+
+    /// By key code, not by character: with a kana or AZERTY layout the
+    /// top-row `1` produces something else. 49 is space, 18 the top-row `1`,
+    /// 83 the keypad `1`.
     private nonisolated static func reviewKey(for event: NSEvent) -> ReviewKey? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .numericPad, .function])
         guard modifiers.isEmpty else { return nil }
-        switch event.charactersIgnoringModifiers {
-        case " ": return .space
-        case "1": return .one
+        switch event.keyCode {
+        case 49: return .space
+        case 18, 83: return .one
         default: return nil
         }
     }

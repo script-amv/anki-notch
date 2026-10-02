@@ -70,6 +70,10 @@ public enum AnkiConnectError: Error, Equatable, Sendable {
     case api(String)
     /// The response was not the expected `{result, error}` envelope.
     case malformedResponse
+    /// AnkiConnect answered `false` (not an error) to a GUI action: the
+    /// reviewer isn't where the request assumed — not active, answer not
+    /// shown, deck missing. The panel and Anki have drifted apart.
+    case declined(String)
 
     /// "Review is not currently active" is how Anki says the deck is drained.
     /// That is the normal end of a queue, not a failure.

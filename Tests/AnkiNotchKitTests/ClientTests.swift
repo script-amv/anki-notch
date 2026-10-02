@@ -89,6 +89,21 @@ private func stubbedClient(returning json: String) -> AnkiConnectHTTPClient {
         await #expect(throws: AnkiConnectError.api("boom")) { try await client.deckNames() }
     }
 
+    @Test func aFalseResultIsDeclined() async {
+        // AnkiConnect answers `false` (not an error) when the reviewer isn't
+        // where the request assumes: not active, answer not shown, bad ease.
+        let calls: [(String, @Sendable (AnkiConnectHTTPClient) async throws -> Void)] = [
+            ("guiShowAnswer", { try await $0.showAnswer() }),
+            ("guiAnswerCard", { try await $0.answerCurrentCard(ease: 3) }),
+            ("guiStartCardTimer", { try await $0.startCardTimer() }),
+            ("guiDeckReview", { try await $0.startReview(deckName: "A") }),
+        ]
+        for (action, call) in calls {
+            let client = stubbedClient(returning: #"{"result": false, "error": null}"#)
+            await #expect(throws: AnkiConnectError.declined(action)) { try await call(client) }
+        }
+    }
+
     @Test func garbageBodyIsMalformedResponse() async {
         let client = stubbedClient(returning: "not json")
         await #expect(throws: AnkiConnectError.malformedResponse) {

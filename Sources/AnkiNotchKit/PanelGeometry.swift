@@ -10,6 +10,13 @@ public struct PanelGeometry: Equatable, Sendable {
     public static let cornerRadius: CGFloat = 20
     /// How long the mouse may be outside hotspot and panel before the panel collapses.
     public static let collapseGrace: TimeInterval = 0.25
+    /// How long the mouse must rest on the notch before the panel opens, so
+    /// crossing the menu bar through it doesn't take the keyboard.
+    public static let openDwell: TimeInterval = 0.15
+    /// After the panel appears, space and `1` are ignored this long, so
+    /// keystrokes already on their way to the previous app can't grade a card
+    /// the user hasn't looked at yet.
+    public static let keyArmDelay: TimeInterval = 0.25
 
     /// Notch width to assume when a screen reports a camera housing but no
     /// auxiliary top areas (14"/16" notches measure about 180–200 pt).

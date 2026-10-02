@@ -43,6 +43,17 @@ the search paths for the Swift Testing framework (see the Makefile).
 - **`ReviewSession.answer` sets `.submitting` before its first `await`**; that
   is what stops a repeated key answering twice. Key auto-repeat is also dropped
   in `PanelController`.
+- **Never grade a card the user didn't see**: `answer` re-reads `guiCurrentCard`
+  first and shows Anki's card instead if it isn't the one on screen. After an
+  answer Anki may still report the old card for a moment (it applies answers in
+  the background), so the next fetch re-reads up to 5 × 40 ms before accepting it.
+- **AnkiConnect `false` is not success**: `guiShowAnswer`, `guiAnswerCard`,
+  `guiStartCardTimer` and `guiDeckReview` answer `false` when the reviewer isn't
+  where the request assumes. The client turns it into `AnkiConnectError.declined`;
+  the session restarts. The mock behaves the same way — keep it that way.
+- **Opening needs a 0.15 s dwell and keys arm 0.25 s after the panel appears**
+  (`PanelGeometry.openDwell`/`keyArmDelay`), so merely crossing the notch or a
+  keystroke already in flight can't take the keyboard or grade a card.
 - **Hovering again mid-card re-checks `guiCurrentCard`**: same card id keeps the
   side; a different one (reviewed in Anki meanwhile) shows a fresh front. The
   deck is never re-entered while a card is current.

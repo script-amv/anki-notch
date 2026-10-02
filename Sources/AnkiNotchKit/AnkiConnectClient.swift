@@ -28,7 +28,9 @@ public actor AnkiConnectHTTPClient: AnkiConnectClient {
             self.session = session
         } else {
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 10
+            // Short: a frozen Anki (App Nap does this) must not leave the panel
+            // blank for long before it says so.
+            config.timeoutIntervalForRequest = 5
             self.session = URLSession(configuration: config)
         }
     }
@@ -44,7 +46,7 @@ public actor AnkiConnectHTTPClient: AnkiConnectClient {
     }
 
     public func startReview(deckName: String) async throws {
-        let _: Bool = try await invoke("guiDeckReview", params: ["name": deckName])
+        try await invokeAccepted("guiDeckReview", params: ["name": deckName])
     }
 
     public func currentCard() async throws -> CurrentCard {
@@ -52,15 +54,15 @@ public actor AnkiConnectHTTPClient: AnkiConnectClient {
     }
 
     public func startCardTimer() async throws {
-        let _: Bool = try await invoke("guiStartCardTimer")
+        try await invokeAccepted("guiStartCardTimer")
     }
 
     public func showAnswer() async throws {
-        let _: Bool = try await invoke("guiShowAnswer")
+        try await invokeAccepted("guiShowAnswer")
     }
 
     public func answerCurrentCard(ease: Int) async throws {
-        let _: Bool = try await invoke("guiAnswerCard", params: ["ease": ease])
+        try await invokeAccepted("guiAnswerCard", params: ["ease": ease])
     }
 
     public func mediaDirPath() async throws -> String {
@@ -72,6 +74,16 @@ public actor AnkiConnectHTTPClient: AnkiConnectClient {
     private struct Envelope<T: Decodable>: Decodable {
         let result: T?
         let error: String?
+    }
+
+    /// GUI actions answer `true`, or `false` when the reviewer isn't in the
+    /// state the action needs. `false` is not an error to AnkiConnect, so it
+    /// is turned into one here rather than silently read as success.
+    private func invokeAccepted(
+        _ action: String, params: [String: any Sendable]? = nil
+    ) async throws {
+        let accepted: Bool = try await invoke(action, params: params)
+        guard accepted else { throw AnkiConnectError.declined(action) }
     }
 
     private func invoke<T: Decodable>(

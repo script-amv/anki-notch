@@ -45,11 +45,19 @@ public final class ReviewSession {
     public private(set) var mediaDir: String?
 
     private let client: any AnkiConnectClient
+    private let stalePollInterval: Duration
     private var remainingDecks: [String] = []
     private var isOpening = false
 
-    public init(client: any AnkiConnectClient) {
+    /// Re-reads of the current card allowed after an answer while Anki is
+    /// still on the card just answered, before it is accepted as legitimately
+    /// back (a learning card can be due again at once).
+    private static let stalePolls = 5
+
+    public init(client: any AnkiConnectClient,
+                stalePollInterval: Duration = .milliseconds(40)) {
         self.client = client
+        self.stalePollInterval = stalePollInterval
     }
 
     /// The hover entry point. Starts a review from idle, "all done" or a
@@ -81,12 +89,14 @@ public final class ReviewSession {
     private func start() async {
         phase = .loading
         remainingDecks = []
-        mediaDir = try? await client.mediaDirPath()
         do {
             let topLevel = try await client.deckNames().filter { !$0.contains("::") }
             let due = Set(try await client.deckStats(decks: topLevel)
                 .filter { $0.dueTotal > 0 }.map(\.name))
             remainingDecks = topLevel.filter(due.contains)
+            // Only after Anki has answered once: with Anki frozen this must not
+            // add a second timeout before the panel can say so.
+            mediaDir = try? await client.mediaDirPath()
             await enterNextDeck()
         } catch {
             fail(error)
@@ -103,6 +113,8 @@ public final class ReviewSession {
             phase = .front(current)
         } catch let error as AnkiConnectError where error.isReviewInactive {
             await start()
+        } catch AnkiConnectError.declined {
+            await start()
         } catch {
             fail(error)
         }
@@ -114,6 +126,9 @@ public final class ReviewSession {
             phase = .back(card)
         } catch let error as AnkiConnectError where error.isReviewInactive {
             await start()
+        } catch AnkiConnectError.declined {
+            // Anki's reviewer isn't showing a question any more.
+            await start()
         } catch {
             fail(error)
         }
@@ -124,11 +139,22 @@ public final class ReviewSession {
         // Set before the first await so a held key can't answer twice.
         phase = .submitting(card)
         do {
+            // Anki may have moved on (reviewed in Anki itself, or restarted).
+            // Grading then would grade a card the user never saw.
+            let current = try await client.currentCard()
+            guard current.cardId == card.cardId else {
+                try await client.startCardTimer()
+                phase = .front(current)
+                return
+            }
             try await client.answerCurrentCard(ease: card.ease(for: rating))
-            if try await showCurrentCard() { return }
+            if try await showCurrentCard(notYet: card.cardId) { return }
             await enterNextDeck()
         } catch let error as AnkiConnectError where error.isReviewInactive {
             await enterNextDeck()
+        } catch AnkiConnectError.declined {
+            // Anki refused the grade: it is not on this card's answer side.
+            await start()
         } catch {
             fail(error)
         }
@@ -141,6 +167,8 @@ public final class ReviewSession {
             do {
                 try await client.startReview(deckName: deck)
                 if try await showCurrentCard() { return }
+            } catch AnkiConnectError.declined {
+                continue  // Anki wouldn't enter this deck (renamed or deleted)
             } catch {
                 fail(error)
                 return
@@ -151,14 +179,27 @@ public final class ReviewSession {
 
     /// Show Anki's current card. False means the deck is drained, which is
     /// the normal end of a queue ("review is not currently active").
-    private func showCurrentCard() async throws -> Bool {
+    ///
+    /// `staleId` is the card just answered: Anki applies an answer in the
+    /// background, so for a moment its reviewer can still be on that card.
+    /// Wait a few beats for it to move on, then accept it (a learning card can
+    /// legitimately be due again straight away).
+    private func showCurrentCard(notYet staleId: Int64? = nil) async throws -> Bool {
         do {
-            let card = try await client.currentCard()
+            var card = try await client.currentCard()
+            var polls = 0
+            while card.cardId == staleId, polls < Self.stalePolls {
+                polls += 1
+                try await Task.sleep(for: stalePollInterval)
+                card = try await client.currentCard()
+            }
             try await client.startCardTimer()
             phase = .front(card)
             return true
         } catch let error as AnkiConnectError where error.isReviewInactive {
             return false
+        } catch AnkiConnectError.declined {
+            return false  // the reviewer closed between the two requests
         }
     }
 
