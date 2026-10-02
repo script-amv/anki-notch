@@ -115,6 +115,14 @@ the search paths for the Swift Testing framework (see the Makefile).
   card. "Force black background" = forced night-mode classes + a last `<style>`
   (after the note CSS) setting `html, body.card, #qa` to `#000 !important`.
   Default output (setting off) must stay byte-identical to the pre-settings document.
+- **The deck-route row sits outside the content-height clamp** and is always
+  counted in `stageFrame` (`PanelGeometry.routeRowHeight`), so toggling it
+  animates the mask like a card-height change and never resizes the window
+  mid-motion. Rest frames and the hover check use the route-aware height.
+- **Clicks are handled only through the panel's own monitor**
+  (`event.window === panel`, point inside the hotspot rect), never on the
+  hotspot window. A click on the notch toggles the route row (in memory, reset
+  on relaunch); clicks anywhere else pass through.
 - **Audio is out of v1**: `[sound:…]`, `[anki:play:…]` and TTS blocks are stripped.
 
 ## Testing against real Anki
