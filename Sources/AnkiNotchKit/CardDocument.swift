@@ -17,34 +17,48 @@ public enum CardDocument {
     /// how Anki darkens note types that never heard of night mode (the stock
     /// template says `.card { color: black; background-color: white }`, and
     /// `body.nightMode` outranks that on specificity alone).
-    public static func html(side: String, css: String) -> String {
-        """
+    ///
+    /// With `forceBlackBackground` the document is always in night mode (the
+    /// classes are there from the first paint and the system appearance cannot
+    /// remove them), and a last `<style>`, after the note's own CSS, paints the
+    /// canvas pure black. Inner elements keep their own backgrounds.
+    public static func html(side: String, css: String,
+                            forceBlackBackground: Bool = false) -> String {
+        let htmlClass = forceBlackBackground ? #" class="night-mode""# : ""
+        let colorScheme = forceBlackBackground ? "dark" : "light dark"
+        let bodyClasses = forceBlackBackground ? "card isMac nightMode night_mode" : "card isMac"
+        let forcedBlack = forceBlackBackground
+            ? "\n<style>html, body.card, #qa { background: #000 !important }</style>" : ""
+        let followSystem = forceBlackBackground ? "" : """
+
+            <script>
+            (function () {
+              const mq = matchMedia("(prefers-color-scheme: dark)");
+              const apply = () => {
+                document.body.classList.toggle("nightMode", mq.matches);
+                document.body.classList.toggle("night_mode", mq.matches);
+                document.documentElement.classList.toggle("night-mode", mq.matches);
+              };
+              apply();
+              mq.addEventListener("change", apply);
+            })();
+            </script>
+            """
+        return """
         <!doctype html>
-        <html>
+        <html\(htmlClass)>
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-        :root { color-scheme: light dark; --canvas: #f5f5f5; --fg: #020202; }
+        :root { color-scheme: \(colorScheme); --canvas: #f5f5f5; --fg: #020202; }
         :root.night-mode { --canvas: #2c2c2c; --fg: #fcfcfc; }
         body { margin: 0; }
         body.nightMode { background-color: var(--canvas); color: var(--fg); }
         </style>
-        <style>\(css)</style>
+        <style>\(css)</style>\(forcedBlack)
         </head>
-        <body class="card isMac"><div id="qa">\(stripAudioMarkers(side))</div>
-        <script>
-        (function () {
-          const mq = matchMedia("(prefers-color-scheme: dark)");
-          const apply = () => {
-            document.body.classList.toggle("nightMode", mq.matches);
-            document.body.classList.toggle("night_mode", mq.matches);
-            document.documentElement.classList.toggle("night-mode", mq.matches);
-          };
-          apply();
-          mq.addEventListener("change", apply);
-        })();
-        </script>
+        <body class="\(bodyClasses)"><div id="qa">\(stripAudioMarkers(side))</div>\(followSystem)
         </body>
         </html>
         """
