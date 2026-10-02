@@ -17,7 +17,20 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     private var staleCard: CurrentCard?
     private var staleReads = 0
 
+    /// Answered cards with the deck they came from, newest last (for undo).
+    private var answeredCards: [(card: CurrentCard, deck: Int)] = []
+    /// The deck `startReview` last entered, even if it had nothing to show.
+    private var reviewerDeck: Int?
+    /// After `undo()` Anki's reviewer keeps showing what it showed (nil: the
+    /// "congratulations" screen) until `startReview` re-enters the deck.
+    private var reviewerIsStale = false
+    private var staleView: CurrentCard?
+    private var pendingUndo: (card: CurrentCard, deck: Int, delay: Int)?
+    private var undoDelayCalls = 0
+    private var undoDeclined = false
+
     public private(set) var answered: [MockAnswer] = []
+    public private(set) var undoCalls = 0
     public private(set) var enteredDecks: [String] = []
     public private(set) var timerStarts = 0
     /// Every `answerCurrentCard` call that reached the client, including ones
@@ -36,6 +49,13 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     /// this many reads — Anki applies an answer in the background, so right
     /// after `guiAnswerCard` its reviewer can still be on the old card.
     public func setStaleReadsAfterAnswer(_ reads: Int) { staleReadsAfterAnswer = reads }
+
+    /// `guiUndo` only schedules the undo: it takes effect this many
+    /// `startReview`/`currentCard` calls after it (0: at the next `startReview`).
+    public func setUndoDelayCalls(_ calls: Int) { undoDelayCalls = calls }
+
+    /// `guiUndo` answers `false`.
+    public func setUndoDeclined(_ declined: Bool) { undoDeclined = declined }
 
     /// Anki is back on the question side (reviewer restarted, or flipped back).
     public func forgetAnswerShown() { answerShown = false }
@@ -76,12 +96,20 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
         enteredDecks.append(deckName)
         answerShown = false
         staleReads = 0
+        reviewerIsStale = false
         let index = decks.firstIndex { $0.name == deckName }
+        reviewerDeck = index
+        tickUndo()
         activeDeck = index.flatMap { decks[$0].cards.isEmpty ? nil : $0 }
     }
 
     public func currentCard() async throws -> CurrentCard {
         try check()
+        if reviewerIsStale {
+            guard let staleView else { throw Self.inactive }
+            return staleView
+        }
+        tickUndo()
         if staleReads > 0, let staleCard {
             staleReads -= 1
             return staleCard
@@ -112,11 +140,39 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
         guard let index = activeDeck, let card = decks[index].cards.first,
               answerShown else { throw AnkiConnectError.declined("guiAnswerCard") }
         answered.append(MockAnswer(cardId: card.cardId, ease: ease))
+        answeredCards.append((card, index))
         popCurrent()
         if staleReadsAfterAnswer > 0 {
             staleCard = card
             staleReads = staleReadsAfterAnswer
         }
+    }
+
+    /// Anki's undo takes back the latest answer (nothing happens with none).
+    /// Like the real add-on it is scheduled, not immediate, and the reviewer
+    /// stays on what it showed until `startReview` re-enters the deck.
+    public func undo() async throws {
+        try check()
+        undoCalls += 1
+        if undoDeclined { throw AnkiConnectError.declined("guiUndo") }
+        guard let last = answeredCards.popLast() else { return }
+        answered.removeLast()
+        staleView = activeDeck.flatMap { decks[$0].cards.first }
+        reviewerIsStale = true
+        pendingUndo = (last.card, last.deck, undoDelayCalls)
+    }
+
+    /// One step of the background undo: applied once its delay has run out.
+    private func tickUndo() {
+        guard let pending = pendingUndo else { return }
+        if pending.delay > 0 {
+            pendingUndo?.delay -= 1
+            return
+        }
+        pendingUndo = nil
+        decks[pending.deck].cards.insert(pending.card, at: 0)
+        answerShown = false
+        if reviewerDeck == pending.deck { activeDeck = pending.deck }
     }
 
     public func mediaDirPath() async throws -> String {

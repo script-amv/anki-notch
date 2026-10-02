@@ -29,7 +29,7 @@ public enum ReviewPhase: Equatable, Sendable {
 }
 
 public enum ReviewKey: Sendable {
-    case space, one
+    case space, one, undo
 }
 
 /// State machine over Anki's GUI review flow (`guiDeckReview → guiCurrentCard →
@@ -49,26 +49,41 @@ public final class ReviewSession {
 
     private let client: any AnkiConnectClient
     private let stalePollInterval: Duration
+    private let undoPollInterval: Duration
     private var remainingDecks: [String] = []
     private var isOpening = false
     private var isHandling = false
     private var restartPending = false
+    private var isUndoing = false
+    /// The deck whose cards are being reviewed now: the one `guiDeckReview`
+    /// last entered.
+    private var activeDeck: String?
+    /// Cards this app answered in `activeDeck`, newest last. Anki's undo takes
+    /// back its *latest* operation whatever it was, so this is cleared whenever
+    /// something else may have happened since (another deck entered, a
+    /// restart, Anki's card changed under us).
+    private var undoable: [Int64] = []
 
     /// Re-reads of the current card allowed after an answer while Anki is
     /// still on the card just answered, before it is accepted as legitimately
     /// back (a learning card can be due again at once).
     private static let stalePolls = 5
+    /// `guiUndo` only schedules Anki's undo, so the undone card can take a
+    /// moment to reach the front of the queue.
+    private static let undoPolls = 15
 
     public init(client: any AnkiConnectClient,
-                stalePollInterval: Duration = .milliseconds(40)) {
+                stalePollInterval: Duration = .milliseconds(40),
+                undoPollInterval: Duration = .milliseconds(100)) {
         self.client = client
         self.stalePollInterval = stalePollInterval
+        self.undoPollInterval = undoPollInterval
     }
 
     /// The hover entry point. Starts a review from idle, "all done" or a
     /// failure; mid-card it only checks that Anki is still on the same card.
     public func open() async {
-        guard !isOpening else { return }
+        guard !isOpening, !isUndoing else { return }
         isOpening = true
         defer { isOpening = false }
         switch phase {
@@ -107,13 +122,15 @@ public final class ReviewSession {
     }
 
     /// Space flips on the front and answers Good on the back; `1` answers
-    /// Again on the back. Every other combination does nothing.
+    /// Again on the back; ⌘Z (`.undo`) takes back the last answer from either
+    /// side, or from "All done". Every other combination does nothing.
     public func handle(_ key: ReviewKey) async {
         isHandling = true
         switch (phase, key) {
         case (.front(let card), .space): await flip(card)
         case (.back, .space): await answer(.good)
         case (.back, .one): await answer(.again)
+        case (_, .undo): await undo()
         default: break
         }
         isHandling = false
@@ -139,6 +156,8 @@ public final class ReviewSession {
     private func start() async {
         phase = .loading
         remainingDecks = []
+        undoable = []
+        activeDeck = nil
         do {
             let names = try await client.deckNames()
             if let chosen = chosenDeck, names.contains(chosen) {
@@ -166,6 +185,7 @@ public final class ReviewSession {
         do {
             let current = try await client.currentCard()
             guard current.cardId != card.cardId else { return }
+            undoable = []  // Anki's latest operation is no longer ours
             try await client.startCardTimer()
             phase = .front(current)
         } catch let error as AnkiConnectError where error.isReviewInactive {
@@ -200,11 +220,13 @@ public final class ReviewSession {
             // Grading then would grade a card the user never saw.
             let current = try await client.currentCard()
             guard current.cardId == card.cardId else {
+                undoable = []
                 try await client.startCardTimer()
                 phase = .front(current)
                 return
             }
             try await client.answerCurrentCard(ease: card.ease(for: rating))
+            undoable.append(card.cardId)
             if try await showCurrentCard(notYet: card.cardId) { return }
             await enterNextDeck()
         } catch let error as AnkiConnectError where error.isReviewInactive {
@@ -217,12 +239,73 @@ public final class ReviewSession {
         }
     }
 
+    /// Take back the last answer with Anki's own undo, and show that card on
+    /// its front. Nothing to take back: nothing happens.
+    ///
+    /// `guiUndo` alone changes nothing on screen: Anki's reviewer refreshes
+    /// after an operation only while Anki's window is focused. So the deck
+    /// being reviewed is entered again (selecting the same deck keeps Anki's
+    /// queue, with the undone card at its front) and the current card is
+    /// polled until it is the undone one. The deck choice and the remaining
+    /// decks are left alone: `undoable` only holds answers from `activeDeck`.
+    private func undo() async {
+        guard let undoneId = undoable.last, let deck = activeDeck else { return }
+        switch phase {
+        case .front(let card), .back(let card):
+            // Set before the first await so a double press can't undo twice.
+            phase = .submitting(card)
+        case .allDone:
+            break  // the flag below is what stops a second press
+        case .idle, .loading, .submitting, .failed: return
+        }
+        isUndoing = true
+        defer { isUndoing = false }
+        do {
+            try await client.undo()
+            var card = try await reenterAndFetch(deck)
+            var polls = 0
+            while card?.cardId != undoneId, polls < Self.undoPolls {
+                polls += 1
+                try await Task.sleep(for: undoPollInterval)
+                card = try await reenterAndFetch(deck)
+            }
+            guard let card, card.cardId == undoneId else {
+                // Anki never showed it: whatever was undone, it wasn't what
+                // we expected. Start over from Anki's real state.
+                await start()
+                return
+            }
+            undoable.removeLast()
+            try await client.startCardTimer()
+            phase = .front(card)
+        } catch AnkiConnectError.declined {
+            await start()
+        } catch let error as AnkiConnectError where error.isReviewInactive {
+            await start()
+        } catch {
+            fail(error)
+        }
+    }
+
+    /// `guiDeckReview` on `deck`, then the card it shows; nil when no review
+    /// is active (the deck has nothing to show).
+    private func reenterAndFetch(_ deck: String) async throws -> CurrentCard? {
+        try await client.startReview(deckName: deck)
+        do {
+            return try await client.currentCard()
+        } catch let error as AnkiConnectError where error.isReviewInactive {
+            return nil
+        }
+    }
+
     /// Enter decks until one has a card to show; none left means all done.
     private func enterNextDeck() async {
         while !remainingDecks.isEmpty {
             let deck = remainingDecks.removeFirst()
             do {
                 try await client.startReview(deckName: deck)
+                if deck != activeDeck { undoable = [] }
+                activeDeck = deck
                 if try await showCurrentCard() { return }
             } catch AnkiConnectError.declined {
                 continue  // Anki wouldn't enter this deck (renamed or deleted)

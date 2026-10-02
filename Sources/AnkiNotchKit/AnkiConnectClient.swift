@@ -10,6 +10,10 @@ public protocol AnkiConnectClient: Sendable {
     func startCardTimer() async throws
     func showAnswer() async throws
     func answerCurrentCard(ease: Int) async throws
+    /// Anki's own undo (`guiUndo`): takes back its latest operation. It only
+    /// schedules the undo, and Anki's reviewer stays stale until it is
+    /// re-entered; see `ReviewSession.undo()`.
+    func undo() async throws
     func mediaDirPath() async throws -> String
 }
 
@@ -63,6 +67,10 @@ public actor AnkiConnectHTTPClient: AnkiConnectClient {
 
     public func answerCurrentCard(ease: Int) async throws {
         try await invokeAccepted("guiAnswerCard", params: ["ease": ease])
+    }
+
+    public func undo() async throws {
+        try await invokeAccepted("guiUndo")
     }
 
     public func mediaDirPath() async throws -> String {

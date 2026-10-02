@@ -32,7 +32,7 @@ private enum PanelMotion {
 }
 
 /// Owns the panel: grows it out of the notch, collapses it back when the mouse
-/// has been away for the grace period, and turns space / `1` into `ReviewKey`s.
+/// has been away for the grace period, and turns space / `1` / ⌘Z into `ReviewKey`s.
 ///
 /// The window is a fixed transparent stage while anything is moving (the
 /// largest the card can be, flush with the top of the screen), and shrinks to
@@ -550,7 +550,7 @@ final class PanelController {
 
     /// A local monitor rather than `keyDown` on the panel: the card's web view
     /// is the first responder and would swallow space. Only an unmodified
-    /// space or `1` typed into the panel is ours; everything else passes
+    /// space or `1`, or ⌘Z, typed into the panel is ours; everything else passes
     /// through untouched, including keys aimed at another window of this app
     /// (the settings window): space must toggle its checkbox, and must never
     /// answer a card the user is not looking at.
@@ -573,12 +573,16 @@ final class PanelController {
         onKey?(key)
     }
 
-    /// By key code, not by character: with a kana or AZERTY layout the
-    /// top-row `1` produces something else. 49 is space, 18 the top-row `1`,
-    /// 83 the keypad `1`.
+    /// Space, `1` and ⌘Z. Space and `1` are matched by key code, not by
+    /// character: with a kana or AZERTY layout the top-row `1` produces
+    /// something else. 49 is space, 18 the top-row `1`, 83 the keypad `1`.
+    /// ⌘Z is matched by the letter, as in every Mac app (⇧⌘Z is redo: not ours).
     private nonisolated static func reviewKey(for event: NSEvent) -> ReviewKey? {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .numericPad, .function])
+        if modifiers == .command {
+            return event.charactersIgnoringModifiers?.lowercased() == "z" ? .undo : nil
+        }
         guard modifiers.isEmpty else { return nil }
         switch event.keyCode {
         case 49: return .space

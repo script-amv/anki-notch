@@ -6,7 +6,8 @@ import Testing
 
     private func make(_ decks: Decks) -> (ReviewSession, MockAnkiConnectClient) {
         let mock = MockAnkiConnectClient(decks: decks)
-        return (ReviewSession(client: mock, stalePollInterval: .milliseconds(1)), mock)
+        return (ReviewSession(client: mock, stalePollInterval: .milliseconds(1),
+                              undoPollInterval: .milliseconds(1)), mock)
     }
 
     @Test func firstOpenEntersFirstDeckWithDueCardsAndShowsFront() async {
@@ -292,5 +293,219 @@ import Testing
         #expect(await session.availableDecks() == ["A", "A::Sub"])
         await mock.setFailure(.unreachable("down"))
         #expect(await session.availableDecks() == nil)
+    }
+
+    // MARK: Undo
+
+    private func answerGood(_ session: ReviewSession) async {
+        await session.handle(.space)
+        await session.handle(.space)
+    }
+
+    @Test func undoOnTheFrontBringsBackTheAnsweredCardOnItsFront() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2])])
+        await session.open()
+        await answerGood(session)
+        #expect(session.phase == .front(c2))
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+        #expect(await mock.undoCalls == 1)
+        #expect(await mock.answered.isEmpty)
+        #expect(await mock.enteredDecks == ["A", "A"])  // re-entered the same deck
+    }
+
+    @Test func undoOnTheBackLeavesTheCardOnScreenUngradedAndShowsTheUndoneOne() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2, makeCard(3)])])
+        await session.open()
+        await answerGood(session)
+        await session.handle(.space)  // c2 flipped
+        #expect(session.phase == .back(c2))
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+        #expect(await mock.answered.isEmpty)
+        // c2 is next again, still unanswered.
+        await answerGood(session)
+        #expect(session.phase == .front(c2))
+    }
+
+    @Test func undoWithNothingToUndoDoesNothing() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1])])
+        await session.open()
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+        #expect(await mock.undoCalls == 0)  // never sent to Anki
+        await session.handle(.space)
+        await session.handle(.undo)
+        #expect(session.phase == .back(c1))
+        #expect(await mock.undoCalls == 0)
+    }
+
+    @Test func repeatedUndoWalksFurtherBack() async {
+        let (c1, c2, c3) = (makeCard(1), makeCard(2), makeCard(3))
+        let (session, mock) = make([("A", [c1, c2, c3])])
+        await session.open()
+        await answerGood(session)
+        await answerGood(session)
+        #expect(session.phase == .front(c3))
+        await session.handle(.undo)
+        #expect(session.phase == .front(c2))
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+        await session.handle(.undo)  // history is used up
+        #expect(session.phase == .front(c1))
+        #expect(await mock.undoCalls == 2)
+    }
+
+    @Test func undoOutrunByAnkisBackgroundOperationPollsUntilTheCardIsBack() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2])])
+        await mock.setUndoDelayCalls(3)
+        await session.open()
+        await answerGood(session)
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+    }
+
+    @Test func undoAfterTheLastCardOfTheLastDeckBringsItBackFromAllDone() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1])])
+        await session.open()
+        await answerGood(session)
+        #expect(session.phase == .allDone)
+        await session.handle(.undo)
+        #expect(session.phase == .front(c1))
+        #expect(await mock.answered.isEmpty)
+        // And the review carries on normally afterwards.
+        await answerGood(session)
+        #expect(session.phase == .allDone)
+        #expect(await mock.answered == [MockAnswer(cardId: 1, ease: 3)])
+    }
+
+    @Test func undoKeepsTheChosenDeck() async {
+        let (b1, b2) = (makeCard(2, deck: "B"), makeCard(3, deck: "B"))
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")]), ("B", [b1, b2])])
+        await session.choose("B")
+        await answerGood(session)
+        await session.handle(.undo)
+        #expect(session.chosenDeck == "B")
+        #expect(session.phase == .front(b1))
+        #expect(await mock.enteredDecks == ["B", "B"])
+    }
+
+    @Test func undoInTheAllDecksWalkKeepsTheRestOfTheWalk() async {
+        let (a1, a2, b1) = (makeCard(1, deck: "A"), makeCard(2, deck: "A"), makeCard(3, deck: "B"))
+        let (session, _) = make([("A", [a1, a2]), ("B", [b1])])
+        await session.open()
+        await answerGood(session)
+        await session.handle(.undo)
+        #expect(session.phase == .front(a1))
+        await answerGood(session)
+        await answerGood(session)
+        #expect(session.phase == .front(b1))  // still moves on to B afterwards
+    }
+
+    @Test func enteringAnotherDeckClearsTheUndoHistory() async {
+        let b1 = makeCard(2, deck: "B")
+        let (session, mock) = make([("A", [makeCard(1, deck: "A")]), ("B", [b1])])
+        await session.open()
+        await answerGood(session)
+        #expect(session.phase == .front(b1))  // A drained, B entered
+        await session.handle(.undo)
+        #expect(session.phase == .front(b1))
+        #expect(await mock.undoCalls == 0)
+    }
+
+    @Test func aRestartClearsTheUndoHistory() async {
+        let (session, mock) = make([("A", [makeCard(1), makeCard(2)])])
+        await session.open()
+        await answerGood(session)
+        await session.choose("A")
+        await session.handle(.undo)
+        #expect(await mock.undoCalls == 0)
+    }
+
+    @Test func reviewingInAnkiItselfClearsTheUndoHistory() async {
+        // Anki's undo would now take back something that is not ours.
+        let (session, mock) = make([("A", [makeCard(1), makeCard(2), makeCard(3)])])
+        await session.open()
+        await answerGood(session)
+        await mock.discardCurrentCard()  // c2 answered in Anki's own window
+        await session.open()
+        await session.handle(.undo)
+        #expect(await mock.undoCalls == 0)
+    }
+
+    @Test func undoWhoseCardNeverReturnsGivesUpAndRestartsFromAnki() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2])])
+        await mock.setUndoDelayCalls(1000)  // the undo never lands within the poll limit
+        await session.open()
+        await answerGood(session)
+        await session.handle(.undo)
+        #expect(session.phase == .front(c2))  // whatever Anki really has
+        await session.handle(.undo)           // history was cleared
+        #expect(await mock.undoCalls == 1)
+    }
+
+    @Test func doublePressedUndoUndoesOnce() async {
+        let (c1, c2) = (makeCard(1), makeCard(2))
+        let (session, mock) = make([("A", [c1, c2, makeCard(3)])])
+        await session.open()
+        await answerGood(session)
+        await answerGood(session)
+        async let first: Void = session.handle(.undo)
+        async let second: Void = session.handle(.undo)
+        _ = await (first, second)
+        #expect(await mock.undoCalls == 1)
+        #expect(session.phase == .front(c2))
+    }
+
+    @Test func hoveringDuringAnUndoFromAllDoneDoesNotRestart() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1])])
+        await session.open()
+        await answerGood(session)
+        async let undoing: Void = session.handle(.undo)
+        async let hovering: Void = session.open()
+        _ = await (undoing, hovering)
+        #expect(session.phase == .front(c1))
+        #expect(await mock.undoCalls == 1)
+    }
+
+    @Test func undoAnkiDeclinesRestarts() async {
+        let c1 = makeCard(1)
+        let (session, mock) = make([("A", [c1, makeCard(2)])])
+        await session.open()
+        await answerGood(session)
+        await mock.setUndoDeclined(true)
+        await session.handle(.undo)
+        #expect(session.phase == .front(makeCard(2)))
+        await session.handle(.undo)
+        #expect(await mock.undoCalls == 1)  // the history is gone
+    }
+
+    @Test func undoWithAnkiClosedFails() async {
+        let (session, mock) = make([("A", [makeCard(1), makeCard(2)])])
+        await session.open()
+        await answerGood(session)
+        await mock.setFailure(.unreachable("x"))
+        await session.handle(.undo)
+        #expect(session.phase == .failed(.ankiClosed))
+    }
+
+    @Test func aChoiceMadeDuringAnUndoIsAppliedWhenItFinishes() async {
+        let b1 = makeCard(3, deck: "B")
+        let (session, _) = make([("A", [makeCard(1, deck: "A"), makeCard(2, deck: "A")]), ("B", [b1])])
+        await session.open()
+        await answerGood(session)
+        let undoing = Task { await session.handle(.undo) }
+        await Task.yield()
+        await session.choose("B")
+        await undoing.value
+        #expect(session.chosenDeck == "B")
+        #expect(session.phase == .front(b1))
     }
 }

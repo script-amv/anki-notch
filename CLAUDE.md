@@ -135,6 +135,20 @@ the search paths for the Swift Testing framework (see the Makefile).
   hover check and the review keys stand down; reset `outsideSince` afterwards.
   The row is clickable only while visible. In `All done` with a deck chosen it
   stays up, naming that deck, so the user can pick another.
+- **⌘Z undo is `guiUndo` plus re-entering the deck.** `guiUndo` only schedules
+  Anki's undo and its reviewer stays stale while Anki isn't focused, so
+  `ReviewSession.undo()` calls `guiDeckReview` on `activeDeck` (same deck keeps
+  the queue, the undone card is at its front) and polls `guiCurrentCard` until
+  it is the undone id (15 × 100 ms), else restarts. Anki's undo takes back its
+  *latest* operation whatever it was, so `undoable` (answers made here in
+  `activeDeck`) is cleared on `start()`, on entering a different deck, and when
+  Anki's card turns out not to be ours (re-hover or answer found another
+  card). Whether `guiDeckReview` itself is an undoable Anki operation is
+  unverified: clearing on a deck change is the safe side. Undo shows the card
+  on its front from either side or from `All done`; nothing to undo does
+  nothing and is never sent to Anki. `.submitting` (or `isUndoing` from
+  `All done`) is set before the first `await`, and `open()` stands down while
+  it is set. The key monitor matches ⌘Z by letter, command only (⇧⌘Z passes).
 - **Audio is out of v1**: `[sound:…]`, `[anki:play:…]` and TTS blocks are stripped.
 
 ## Testing against real Anki

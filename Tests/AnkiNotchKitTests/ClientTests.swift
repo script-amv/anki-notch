@@ -89,6 +89,14 @@ private func stubbedClient(returning json: String) -> AnkiConnectHTTPClient {
         await #expect(throws: AnkiConnectError.api("boom")) { try await client.deckNames() }
     }
 
+    @Test func undoSendsGuiUndo() async throws {
+        let client = stubbedClient(returning: #"{"result": true, "error": null}"#)
+        try await client.undo()
+        let body = try #require(StubURLProtocol.lastBody)
+        #expect(body["action"] as? String == "guiUndo")
+        #expect(body["params"] == nil)
+    }
+
     @Test func aFalseResultIsDeclined() async {
         // AnkiConnect answers `false` (not an error) when the reviewer isn't
         // where the request assumes: not active, answer not shown, bad ease.
@@ -97,6 +105,7 @@ private func stubbedClient(returning json: String) -> AnkiConnectHTTPClient {
             ("guiAnswerCard", { try await $0.answerCurrentCard(ease: 3) }),
             ("guiStartCardTimer", { try await $0.startCardTimer() }),
             ("guiDeckReview", { try await $0.startReview(deckName: "A") }),
+            ("guiUndo", { try await $0.undo() }),
         ]
         for (action, call) in calls {
             let client = stubbedClient(returning: #"{"result": false, "error": null}"#)
