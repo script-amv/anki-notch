@@ -9,9 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotspots: NotchHotspotController?
     private var cardView: CardWebView?
     private var session: ReviewSession?
+    private let settings = AppSettings()
+    private lazy var settingsWindow = SettingsWindow(settings: settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = StatusItem()
+        statusItem = StatusItem { [weak self] in self?.settingsWindow.show() }
         let panel = PanelController()
         let cardView = CardWebView()
         let session = ReviewSession(client: Self.makeClient())
@@ -52,9 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return MockAnkiConnectClient(decks: [("Sample", cards)])
     }
 
-    /// Re-renders whenever the session's phase (or media folder) changes.
-    /// `onChange` fires just before the new value lands, so the re-arm hops
-    /// through a task to read the settled state.
+    /// Re-renders whenever the session's phase (or media folder) or a setting
+    /// changes. `onChange` fires just before the new value lands, so the re-arm
+    /// hops through a task to read the settled state.
     private func observePhase() {
         withObservationTracking {
             render()
@@ -64,14 +66,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func render() {
+        // Read first, whatever the phase, so toggling it always re-renders.
+        let forceBlack = settings.forceBlackBackground
         guard let session, let panel, let cardView else { return }
         switch session.phase {
         case .front(let card):
             panel.setMessage(nil)
-            cardView.show(html: card.question, css: card.css, mediaDir: session.mediaDir)
+            cardView.show(html: card.question, css: card.css, mediaDir: session.mediaDir,
+                          forceBlackBackground: forceBlack)
         case .back(let card):
             panel.setMessage(nil)
-            cardView.show(html: card.answer, css: card.css, mediaDir: session.mediaDir)
+            cardView.show(html: card.answer, css: card.css, mediaDir: session.mediaDir,
+                          forceBlackBackground: forceBlack)
         case .allDone, .failed:
             panel.setMessage(session.phase.message)
         // Keep whatever is on screen: a request is in flight.

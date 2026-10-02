@@ -36,8 +36,10 @@ the search paths for the Swift Testing framework (see the Makefile).
 
 - `Sources/AnkiNotchKit` — no AppKit/WebKit: AnkiConnect client + mock,
   `ReviewSession` (the state machine), `CardDocument`, `MediaFiles`,
-  `PanelGeometry`. Everything testable lives here.
-- `Sources/AnkiNotch` — AppKit: notch hotspot, panel, card web view, Quit item.
+  `PanelGeometry`, `AppSettings` (typed `UserDefaults` wrapper, one property per
+  setting). Everything testable lives here.
+- `Sources/AnkiNotch` — AppKit: notch hotspot, panel, card web view, status item
+  (Settings…, Quit), settings window.
 
 ## Invariants that are easy to break
 
@@ -93,6 +95,16 @@ the search paths for the Swift Testing framework (see the Makefile).
   `NSApp.activate` on hover — macOS refuses an app that was never clicked taking
   the front, so keystrokes would go to the app underneath. Non-activating means
   the previous app stays active and gets the keyboard back when the panel hides.
+- **The key monitor only handles events aimed at the panel** (`event.window ===
+  panel`). It is app-wide, so without that check it would swallow space in the
+  settings window and answer a card the user isn't looking at.
+- **The settings window sits one level above the panel** (`mainMenu + 2`) and the
+  app is activated before it shows; otherwise it opens underneath the panel.
+- **Settings reach cards through `CardDocument.html`**, read inside
+  `AppDelegate.render()`'s observation tracking, so a toggle re-renders the open
+  card. "Force black background" = forced night-mode classes + a last `<style>`
+  (after the note CSS) setting `html, body.card, #qa` to `#000 !important`.
+  Default output (setting off) must stay byte-identical to the pre-settings document.
 - **Audio is out of v1**: `[sound:…]`, `[anki:play:…]` and TTS blocks are stripped.
 
 ## Testing against real Anki

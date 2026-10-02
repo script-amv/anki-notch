@@ -398,15 +398,20 @@ final class PanelController {
 
     /// A local monitor rather than `keyDown` on the panel: the card's web view
     /// is the first responder and would swallow space. Only an unmodified
-    /// space or `1` is ours; everything else passes through untouched.
+    /// space or `1` typed into the panel is ours; everything else passes
+    /// through untouched, including keys aimed at another window of this app
+    /// (the settings window): space must toggle its checkbox, and must never
+    /// answer a card the user is not looking at.
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let key = Self.reviewKey(for: event) else { return event }
-            // A held key must not race through cards: only the first press counts.
-            if !event.isARepeat {
-                MainActor.assumeIsolated { self?.deliver(key) }
+            let handled = MainActor.assumeIsolated {
+                guard let self, event.window === self.panel,
+                      let key = Self.reviewKey(for: event) else { return false }
+                // A held key must not race through cards: only the first press counts.
+                if !event.isARepeat { self.deliver(key) }
+                return true
             }
-            return nil
+            return handled ? nil : event
         }
     }
 

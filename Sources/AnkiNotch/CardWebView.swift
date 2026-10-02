@@ -71,9 +71,10 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
         webView.loadHTMLString("", baseURL: nil)
     }
 
-    func show(html: String, css: String, mediaDir: String?) {
+    func show(html: String, css: String, mediaDir: String?, forceBlackBackground: Bool) {
         mediaHandler.mediaDir = mediaDir
-        let document = CardDocument.html(side: html, css: css)
+        let document = CardDocument.html(side: html, css: css,
+                                         forceBlackBackground: forceBlackBackground)
         guard document != loadedDocument else {
             if contentHeight > 0 { onContentHeight?(contentHeight) }
             return
