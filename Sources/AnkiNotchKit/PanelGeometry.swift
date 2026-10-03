@@ -5,10 +5,9 @@ import Foundation
 /// AppKit so it is unit-testable; the app layer feeds it `NSScreen` measurements.
 public struct PanelGeometry: Equatable, Sendable {
     public static let panelWidth: CGFloat = 480
-    /// The panel's height bounds, measured from the TOP OF THE SCREEN (the
-    /// notch is part of it), route row not counted.
-    public static let minPanelHeight: CGFloat = 200
-    public static let maxPanelHeight: CGFloat = 600
+    /// The content height of the one-line message (`All done`, `Open Anki`)
+    /// that replaces a card.
+    public static let messageContentHeight: CGFloat = 72
     public static let cornerRadius: CGFloat = 20
     /// The deck-route row between the notch strip and the card. It sits
     /// outside the content-height clamp.
@@ -88,12 +87,15 @@ public struct PanelGeometry: Equatable, Sendable {
         showsRoute ? hotspot.height + Self.routeRowHeight : 0
     }
 
-    /// The card content's height for a page that is `contentHeight` tall. The
-    /// panel is bounded from the top of the screen, so the bottom padding comes
-    /// out of the bounds and a taller card scrolls inside.
-    public func contentAreaHeight(for contentHeight: CGFloat) -> CGFloat {
-        let panel = min(max(contentHeight + padding, Self.minPanelHeight), Self.maxPanelHeight)
-        return panel - padding
+    /// Everything from the top of the screen down to the bottom of the usable
+    /// area (the Dock): the most the panel can ever be, notch included.
+    public var availableHeight: CGFloat { screenFrame.maxY - visibleFrame.minY }
+
+    /// The card content's height: the page's own height, exactly (the panel
+    /// hugs the front card, no minimum and no arbitrary maximum), bounded only
+    /// by what fits on the screen, in which case the card scrolls inside.
+    public func contentAreaHeight(for contentHeight: CGFloat, showsRoute: Bool = false) -> CGFloat {
+        max(0, min(contentHeight, availableHeight - topInset(showsRoute: showsRoute) - padding))
     }
 
     /// The panel's size: the route strip above when shown, the content, and
@@ -101,7 +103,7 @@ public struct PanelGeometry: Equatable, Sendable {
     public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
         CGSize(width: Self.panelWidth,
                height: topInset(showsRoute: showsRoute)
-                   + contentAreaHeight(for: contentHeight) + padding)
+                   + contentAreaHeight(for: contentHeight, showsRoute: showsRoute) + padding)
     }
 
     /// The panel's window frame at rest: flush with the screen's top edge and
@@ -110,12 +112,12 @@ public struct PanelGeometry: Equatable, Sendable {
         frame(for: cardSize(contentHeight: contentHeight, showsRoute: showsRoute))
     }
 
-    /// The largest the panel can be, route row included: the window while it
+    /// The largest the panel can be (the whole available height): the window while it
     /// animates, so the shape can grow and shrink inside it (toggling the row
     /// never changes the window). Same top edge and centre as every rest
     /// frame, so shrinking the window to a rest frame moves nothing.
     public var stageFrame: CGRect {
-        frame(for: cardSize(contentHeight: Self.maxPanelHeight, showsRoute: true))
+        frame(for: CGSize(width: Self.panelWidth, height: availableHeight))
     }
 
     private func frame(for size: CGSize) -> CGRect {

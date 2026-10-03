@@ -162,7 +162,7 @@ final class PanelController {
         messageLabel.isHidden = text == nil
         guard let text else { return }
         messageLabel.stringValue = text
-        resize(contentHeight: 0, animated: true)  // 0 → the panel's minimum height
+        resize(contentHeight: PanelGeometry.messageContentHeight, animated: true)
     }
 
     /// The deck path of the card on screen, or nil when there is no card (the
@@ -326,7 +326,7 @@ final class PanelController {
     private func layoutContent() {
         guard let geometry else { return }
         let stage = geometry.stageFrame.size
-        let content = geometry.contentAreaHeight(for: contentHeight)
+        let content = geometry.contentAreaHeight(for: contentHeight, showsRoute: routeVisible)
         let row = PanelGeometry.routeRowHeight
         routeRow.frame = CGRect(x: 0, y: stage.height - geometry.hotspot.height - row,
                                 width: stage.width, height: row)

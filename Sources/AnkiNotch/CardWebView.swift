@@ -21,18 +21,36 @@ final class CardWebView: NSView, WKNavigationDelegate, WKScriptMessageHandler {
     /// is shown again (the page itself only reports changes).
     private var contentHeight: CGFloat = 0
 
+    /// Reports the card's content height whenever it changes. It measures our
+    /// own `#qa` wrapper, never `document.body`: a note type that sets
+    /// `.card { display: unset }` (the body carries the `card` class) makes the
+    /// body an inline element, and an inline body has `scrollHeight` 0 and no
+    /// ResizeObserver events, so the panel would never size to such a card.
+    /// `scrollHeight` on `#qa` includes descendants overflowing it, and neither
+    /// number depends on the view's own height, so the page can shrink as well
+    /// as grow. Layout that settles late (fonts, images, stylesheets, note-type
+    /// scripts) is caught by the observers and a few delayed re-measures.
     private static let heightScript = """
     (function () {
       let last = 0;
+      const qa = document.getElementById("qa") || document.body;
+      const measure = () => {
+        const rect = qa.getBoundingClientRect();
+        return Math.ceil(Math.max(qa.scrollHeight, rect.bottom + window.scrollY));
+      };
       const post = () => {
-        const h = Math.ceil(document.body.scrollHeight);
+        const h = measure();
         if (h > 0 && h !== last) {
           last = h;
           window.webkit.messageHandlers.cardHeight.postMessage(h);
         }
       };
-      new ResizeObserver(post).observe(document.body);
+      new ResizeObserver(post).observe(qa);
+      new MutationObserver(post).observe(qa, { childList: true, subtree: true,
+                                               attributes: true, characterData: true });
+      document.addEventListener("transitionend", post, true);
       window.addEventListener("load", post);
+      [100, 300, 800, 2000].forEach((ms) => setTimeout(post, ms));
       post();
     })();
     """

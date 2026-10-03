@@ -119,10 +119,24 @@ the search paths for the Swift Testing framework (see the Makefile).
   card. "Force black background" = forced night-mode classes + a last `<style>`
   (after the note CSS) setting `html, body.card, #qa` to `#000 !important`.
   Default output (setting off) must stay byte-identical to the pre-settings document.
-- **The deck-route row sits outside the content-height clamp** and is always
-  counted in `stageFrame` (`PanelGeometry.routeRowHeight`), so toggling it
-  animates the mask like a card-height change and never resizes the window
-  mid-motion. Rest frames and the hover check use the route-aware height.
+- **The panel hugs the FRONT card exactly.** Its height is the front page's own
+  height (plus the notch-height padding below, and the route strip when shown):
+  no minimum, no fixed maximum, bounded only by the screen
+  (`PanelGeometry.availableHeight`, from the top of the screen to the Dock), and
+  a taller card scrolls inside. Only height reports that arrive while the phase
+  is `.front` resize the panel (`AppDelegate`); the back's own height is ignored,
+  so flipping never changes the size (a taller back scrolls).
+- **The card height is measured on `#qa`, never `document.body`.** A note type
+  with `.card { display: unset }` (the body carries the `card` class) makes the
+  body inline: `scrollHeight` 0 and no ResizeObserver events, so the panel never
+  sized to such cards (the "Senren" note type). `CardWebView.heightScript`
+  measures our own `#qa` wrapper (`scrollHeight` and its rect bottom), which does
+  not depend on the view's height, and re-measures on mutations, transitions and
+  a few delayed ticks for late layout.
+- **The deck-route row sits outside the content height** and the stage is always
+  the full available height, so toggling the row animates the mask like a
+  card-height change and never resizes the window mid-motion. Rest frames and
+  the hover check use the route-aware height.
 - **Clicks are handled only through the panel's own monitor**
   (`event.window === panel`, point inside the hotspot rect), never on the
   hotspot window. A click on the notch toggles the route row (in memory, reset

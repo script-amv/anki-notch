@@ -25,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cardView.autoresizingMask = [.width, .height]
         panel.contentView.addSubview(cardView)
         cardView.warmUp()
+        // The panel hugs the FRONT card and keeps that size when the card is
+        // flipped: the back's own height is ignored (a taller back scrolls).
         cardView.onContentHeight = { [weak panel] height in
+            guard case .front = session.phase else { return }
             panel?.resize(contentHeight: height, animated: true)
         }
         panel.onKey = { key in Task { await session.handle(key) } }
