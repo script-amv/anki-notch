@@ -9,9 +9,6 @@ public struct PanelGeometry: Equatable, Sendable {
     /// that replaces a card.
     public static let messageContentHeight: CGFloat = 72
     public static let cornerRadius: CGFloat = 20
-    /// The deck-route row between the notch strip and the card. It sits
-    /// outside the content-height clamp.
-    public static let routeRowHeight: CGFloat = 22
     /// How long the mouse must rest on the notch before the panel opens, so
     /// crossing the menu bar through it doesn't take the keyboard.
     public static let openDwell: TimeInterval = 0.15
@@ -72,42 +69,30 @@ public struct PanelGeometry: Equatable, Sendable {
                       width: Self.fallbackNotchWidth, height: height)
     }
 
-    /// What sits above the content: nothing, or, while the deck-route row is
-    /// shown, the notch-high strip plus the row, so the row is readable under
-    /// the camera housing and the card starts below it.
-    public func topInset(showsRoute: Bool) -> CGFloat {
-        showsRoute ? hotspot.height + Self.routeRowHeight : 0
-    }
-
     /// Everything from the top of the screen down to the bottom of the usable
     /// area (the Dock): the most the panel can ever be, notch included.
     public var availableHeight: CGFloat { screenFrame.maxY - visibleFrame.minY }
 
     /// The card content's height: the page's own height, exactly (the panel
     /// hugs the front card, no minimum and no arbitrary maximum), bounded only
-    /// by what fits on the screen (minus the route strip when shown), in which case
-    /// the card scrolls inside.
-    public func contentAreaHeight(for contentHeight: CGFloat, showsRoute: Bool = false) -> CGFloat {
-        max(0, min(contentHeight, availableHeight - topInset(showsRoute: showsRoute)))
+    /// by what fits on the screen, in which case the card scrolls inside.
+    public func contentAreaHeight(for contentHeight: CGFloat) -> CGFloat {
+        max(0, min(contentHeight, availableHeight))
     }
 
-    /// The panel's size: the route strip above when shown, then the content,
-    /// edge to edge. There is no padding anywhere.
-    public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
-        CGSize(width: Self.panelWidth,
-               height: topInset(showsRoute: showsRoute)
-                   + contentAreaHeight(for: contentHeight, showsRoute: showsRoute))
+    /// The panel's size: the content, edge to edge. There is no padding anywhere.
+    public func cardSize(contentHeight: CGFloat) -> CGSize {
+        CGSize(width: Self.panelWidth, height: contentAreaHeight(for: contentHeight))
     }
 
     /// The panel's window frame at rest: flush with the screen's top edge and
     /// centered on the hotspot.
-    public func panelFrame(contentHeight: CGFloat, showsRoute: Bool = false) -> CGRect {
-        frame(for: cardSize(contentHeight: contentHeight, showsRoute: showsRoute))
+    public func panelFrame(contentHeight: CGFloat) -> CGRect {
+        frame(for: cardSize(contentHeight: contentHeight))
     }
 
     /// The largest the panel can be (the whole available height): the window while it
-    /// animates, so the shape can grow and shrink inside it (toggling the row
-    /// never changes the window). Same top edge and centre as every rest
+    /// animates, so the shape can grow and shrink inside it. Same top edge and centre as every rest
     /// frame, so shrinking the window to a rest frame moves nothing.
     public var stageFrame: CGRect {
         frame(for: CGSize(width: Self.panelWidth, height: availableHeight))
@@ -130,16 +115,5 @@ public struct PanelGeometry: Equatable, Sendable {
     public static func isNotchClick(_ point: CGPoint, hotspot: CGRect) -> Bool {
         (hotspot.minX...hotspot.maxX).contains(point.x)
             && (hotspot.minY...hotspot.maxY).contains(point.y)
-    }
-
-    /// Whether a click (screen coordinates) is on the route row: the strip
-    /// under the notch, as wide as the panel. The notch's own bottom edge
-    /// belongs to the notch, not the row.
-    public func isRouteRowClick(_ point: CGPoint) -> Bool {
-        let row = CGRect(x: hotspot.midX - Self.panelWidth / 2,
-                         y: hotspot.minY - Self.routeRowHeight,
-                         width: Self.panelWidth, height: Self.routeRowHeight)
-        return (row.minX...row.maxX).contains(point.x)
-            && point.y >= row.minY && point.y < row.maxY
     }
 }

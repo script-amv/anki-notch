@@ -52,8 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard ProcessInfo.processInfo.environment["ANKINOTCH_MOCK"] == "1" else {
             return AnkiConnectHTTPClient()
         }
-        // Nested decks so the route row (and its shortening) and the deck
-        // picker can be tried.
+        // Nested decks so the deck picker can be tried.
         let names = ["Sample", "Languages", "Languages::Japanese::Core",
                      "Languages::Japanese::Core::Kanji::Grade 1::Readings"]
         var nextId: Int64 = 1
@@ -89,21 +88,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch session.phase {
         case .front(let card):
             panel.setMessage(nil)
-            panel.setDeckRoute(card.deckName)
             cardView.show(html: card.question, css: card.css, mediaDir: session.mediaDir,
                           forceBlackBackground: forceBlack)
         case .back(let card):
             panel.setMessage(nil)
-            panel.setDeckRoute(card.deckName)
             cardView.show(html: card.answer, css: card.css, mediaDir: session.mediaDir,
                           forceBlackBackground: forceBlack)
         case .allDone:
-            // With a deck chosen the row names it, so it can be clicked to
-            // pick another; with all decks done there is nothing to pick.
-            panel.setDeckRoute(session.chosenDeck)
             panel.setMessage(session.phase.message)
         case .failed:
-            panel.setDeckRoute(nil)
             panel.setMessage(session.phase.message)
         // Keep whatever is on screen: a request is in flight.
         case .idle, .loading, .submitting:

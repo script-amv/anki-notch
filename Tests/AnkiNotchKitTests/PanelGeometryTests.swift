@@ -16,8 +16,6 @@ import Testing
         #expect(geometry.contentAreaHeight(for: 900) == 900)
         // Only the screen limits it, and then the card scrolls.
         #expect(geometry.contentAreaHeight(for: 5000) == 982)
-        // With the route strip above, that much less fits.
-        #expect(geometry.contentAreaHeight(for: 5000, showsRoute: true) == 928)
     }
 
     @Test func panelFrameHangsFromTheNotch() {
@@ -95,7 +93,7 @@ import Testing
         #expect(geometry.stageFrame == CGRect(x: 720, y: 0, width: 480, height: 1080))
     }
 
-    @Test func cardSizeIsTheContentAloneWithTheRouteStripWhenShown() {
+    @Test func cardSizeIsTheContentAlone() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
         #expect(geometry.cardSize(contentHeight: 300) == CGSize(width: 480, height: 300))
@@ -103,29 +101,6 @@ import Testing
         #expect(geometry.cardSize(contentHeight: 900) == CGSize(width: 480, height: 900))
         #expect(geometry.panelFrame(contentHeight: 300).size
                 == geometry.cardSize(contentHeight: 300))
-    }
-
-    // MARK: Deck route row
-
-    @Test func routeRowAddsItsHeightOutsideTheClamp() {
-        let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
-                                     notch: notch)
-        #expect(geometry.cardSize(contentHeight: 300, showsRoute: true)
-                == CGSize(width: 480, height: 354))
-        // The card area keeps its clamp; the row is extra, not part of it.
-        #expect(geometry.cardSize(contentHeight: 900, showsRoute: true).height == 954)
-        #expect(geometry.cardSize(contentHeight: 10, showsRoute: true).height == 64)
-        #expect(geometry.cardSize(contentHeight: 300, showsRoute: false)
-                == geometry.cardSize(contentHeight: 300))
-    }
-
-    @Test func routeAwarePanelFrameStaysFlushWithTheTop() {
-        let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
-                                     notch: notch)
-        let frame = geometry.panelFrame(contentHeight: 300, showsRoute: true)
-        #expect(frame == CGRect(x: 516, y: 628, width: 480, height: 354))
-        #expect(frame.maxY == geometry.stageFrame.maxY)
-        #expect(geometry.stageFrame.height == geometry.availableHeight)
     }
 
     @Test func notchClickIsInsideTheHotspotEdgesIncluded() {
@@ -137,29 +112,6 @@ import Testing
         #expect(click(856, 982))      // max corner
         #expect(!click(655, 966))     // just left of it (the visible black strip)
         #expect(!click(857, 966))     // just right of it
-        #expect(!click(756, 949))     // just below it, on the route row / card
-    }
-}
-
-@Suite struct RouteRowClickTests {
-    private let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    private let notch = CGRect(x: 656, y: 950, width: 200, height: 32)
-    private var geometry: PanelGeometry {
-        PanelGeometry(screenFrame: screen, visibleFrame: screen, notch: notch)
-    }
-
-    @Test func rowIsTheStripUnderTheNotchAcrossThePanelWidth() {
-        #expect(geometry.isRouteRowClick(CGPoint(x: 700, y: 940)))
-        #expect(geometry.isRouteRowClick(CGPoint(x: 600, y: 930)))   // beside the notch's width
-        #expect(geometry.isRouteRowClick(CGPoint(x: 516, y: 928)))   // left and bottom edges
-        #expect(geometry.isRouteRowClick(CGPoint(x: 996, y: 940)))   // right edge
-    }
-
-    @Test func notchItselfAndEverythingElseIsNotTheRow() {
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 950)))  // the notch's bottom edge
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 965)))
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 700, y: 927)))  // the card below
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 515, y: 940)))
-        #expect(!geometry.isRouteRowClick(CGPoint(x: 997, y: 940)))
+        #expect(!click(756, 949))     // just below it, on the card
     }
 }

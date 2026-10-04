@@ -1,7 +1,7 @@
 import AppKit
 import AnkiNotchKit
 
-/// The deck picker: a native menu popped up under the route row. "All decks"
+/// The deck picker: a native menu popped up under the notch. "All decks"
 /// first, then the deck tree; a deck with subdecks is a submenu whose first
 /// item reviews the whole deck. A checkmark marks the current choice (a dash
 /// on the parents leading to it).

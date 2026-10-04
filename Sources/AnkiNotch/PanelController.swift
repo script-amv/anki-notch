@@ -30,8 +30,6 @@ private enum PanelMotion {
     static let reduceMotionFade: CFTimeInterval = 0.15
     /// The shape's bottom corners while it is still notch-sized.
     static let notchCornerRadius: CGFloat = 10
-    /// The deck route fading in or out when it is toggled.
-    static let routeToggleFade: CFTimeInterval = 0.15
 }
 
 /// Owns the panel: grows it out of the notch, collapses it back the moment the
@@ -59,12 +57,6 @@ final class PanelController {
     private let host = NSView()
     private let maskLayer = CALayer()
     private let messageLabel = NSTextField(labelWithString: "")
-    /// The deck-route row under the notch strip. `routeRow` follows the panel's
-    /// open/close fade; `routeLabel` inside it fades on its own when toggled.
-    private let routeRow = NSView()
-    private let routeLabel = NSTextField(labelWithString: "")
-    private static let routeFont = NSFont.systemFont(ofSize: 11)
-    private static let routeInset: CGFloat = 12
     private var geometry: PanelGeometry?
     private var contentHeight: CGFloat = 200
     /// True from `show` until `hide`; the window stays on screen a little
@@ -84,10 +76,6 @@ final class PanelController {
     private var hoverTimer: Timer?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
-    /// A click on the notch flips this; it survives collapse and reopen, not a
-    /// relaunch. The row is shown only while a card has a deck to name.
-    private var showsDeckRoute = false
-    private var deckRoute: String?
     private var keysArmedAt = Date.distantFuture
     /// A deck menu is being fetched or shown: a second click does nothing.
     private var isPresentingDeckMenu = false
@@ -96,8 +84,6 @@ final class PanelController {
     private var menuIsOpen = false
 
     var isVisible: Bool { isOpen }
-
-    private var routeVisible: Bool { showsDeckRoute && deckRoute != nil }
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -130,17 +116,6 @@ final class PanelController {
         contentView.wantsLayer = true
         host.addSubview(contentView)
 
-        routeRow.wantsLayer = true
-        routeLabel.font = Self.routeFont
-        routeLabel.textColor = NSColor.white.withAlphaComponent(0.55)
-        routeLabel.alignment = .center
-        routeLabel.lineBreakMode = .byTruncatingTail
-        routeLabel.maximumNumberOfLines = 1
-        routeLabel.wantsLayer = true
-        routeLabel.alphaValue = 0
-        routeRow.addSubview(routeLabel)
-        host.addSubview(routeRow)
-
         messageLabel.font = .systemFont(ofSize: 13)
         messageLabel.textColor = NSColor.white.withAlphaComponent(0.6)
         messageLabel.isHidden = true
@@ -165,51 +140,6 @@ final class PanelController {
         resize(contentHeight: PanelGeometry.messageContentHeight, animated: true)
     }
 
-    /// The deck path of the card on screen, or nil when there is no card (the
-    /// terminal states). The row appears or disappears when that, together with
-    /// the click toggle, changes whether it is visible.
-    func setDeckRoute(_ route: String?) {
-        let wasVisible = routeVisible
-        deckRoute = route
-        if let route { routeLabel.stringValue = Self.fittingRoute(route) }
-        routeVisibilityChanged(from: wasVisible)
-    }
-
-    private func toggleDeckRoute() {
-        let wasVisible = routeVisible
-        showsDeckRoute.toggle()
-        routeVisibilityChanged(from: wasVisible)
-    }
-
-    private func routeVisibilityChanged(from wasVisible: Bool) {
-        guard routeVisible != wasVisible else { return }
-        fadeRouteLabel(animated: isOpen && !reduceMotion)
-        resize(contentHeight: contentHeight, animated: true)
-    }
-
-    private func fadeRouteLabel(animated: Bool) {
-        let alpha: CGFloat = routeVisible ? 1 : 0
-        guard animated else {
-            routeLabel.alphaValue = alpha
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = PanelMotion.routeToggleFade
-            routeLabel.animator().alphaValue = alpha
-        }
-    }
-
-    /// The first form of the path that fits the row, else the shortest one
-    /// (which the label then cuts at its tail).
-    private static func fittingRoute(_ deckName: String) -> String {
-        let candidates = DeckRoute.candidates(for: deckName)
-        let available = PanelGeometry.panelWidth - 2 * routeInset
-        let fits = candidates.first {
-            ($0 as NSString).size(withAttributes: [.font: routeFont]).width <= available
-        }
-        return fits ?? candidates.last ?? deckName
-    }
-
     func show(on screen: NSScreen) {
         guard !isOpen else { return }
         isOpen = true
@@ -223,14 +153,13 @@ final class PanelController {
             setShape(size: geometry.hotspot.size, cornerRadius: PanelMotion.notchCornerRadius)
             setContentOpacity(0)
         }
-        routeLabel.alphaValue = routeVisible ? 1 : 0
         keysArmedAt = Date().addingTimeInterval(PanelGeometry.keyArmDelay)
         panel.makeKeyAndOrderFront(nil)
         startWatchingMouse()
         installKeyMonitor()
         installClickMonitor()
 
-        let target = geometry.cardSize(contentHeight: contentHeight, showsRoute: routeVisible)
+        let target = geometry.cardSize(contentHeight: contentHeight)
         if reduceMotion {
             setShape(size: target, cornerRadius: PanelGeometry.cornerRadius)
             fadeContent(to: 1, duration: PanelMotion.reduceMotionFade, delay: 0)
@@ -279,7 +208,7 @@ final class PanelController {
     func resize(contentHeight: CGFloat, animated: Bool) {
         self.contentHeight = contentHeight
         guard isOpen, let geometry else { return }
-        let target = geometry.cardSize(contentHeight: self.contentHeight, showsRoute: routeVisible)
+        let target = geometry.cardSize(contentHeight: self.contentHeight)
         if animated && !reduceMotion {
             ensureStage()
             layoutContent()
@@ -321,22 +250,13 @@ final class PanelController {
         layoutContent()
     }
 
-    /// The route row directly under the notch strip and the card content under
-    /// that, both at their final size and place.
+    /// The card content at its final size. No padding anywhere: the card fills
+    /// the panel edge to edge, from the top of the screen.
     private func layoutContent() {
         guard let geometry else { return }
         let stage = geometry.stageFrame.size
-        let content = geometry.contentAreaHeight(for: contentHeight, showsRoute: routeVisible)
-        let row = PanelGeometry.routeRowHeight
-        routeRow.frame = CGRect(x: 0, y: stage.height - geometry.hotspot.height - row,
-                                width: stage.width, height: row)
-        let labelHeight = ceil(routeLabel.intrinsicContentSize.height)
-        routeLabel.frame = CGRect(x: Self.routeInset, y: (row - labelHeight) / 2,
-                                  width: stage.width - 2 * Self.routeInset, height: labelHeight)
-        // No padding anywhere: the card fills the panel edge to edge, with
-        // nothing above it unless the route row is showing (its own strip).
-        let top = geometry.topInset(showsRoute: routeVisible)
-        contentView.frame = CGRect(x: 0, y: stage.height - top - content,
+        let content = geometry.contentAreaHeight(for: contentHeight)
+        contentView.frame = CGRect(x: 0, y: stage.height - content,
                                    width: stage.width, height: content)
     }
 
@@ -351,8 +271,7 @@ final class PanelController {
     /// whatever is beneath the transparent stage.
     private func settleWindow() {
         guard isOpen, let geometry else { return }
-        panel.setFrame(geometry.panelFrame(contentHeight: contentHeight, showsRoute: routeVisible),
-                       display: true)
+        panel.setFrame(geometry.panelFrame(contentHeight: contentHeight), display: true)
     }
 
     /// Where the shape visibly is right now.
@@ -426,30 +345,17 @@ final class PanelController {
         CATransaction.commit()
     }
 
-    /// What fades with the panel opening and closing: the card and the route row.
-    private var fadingLayers: [CALayer] {
-        [contentView.layer, routeRow.layer].compactMap { $0 }
-    }
-
     private func setContentOpacity(_ opacity: Float) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for layer in fadingLayers {
-            layer.removeAnimation(forKey: "fade")
-            layer.opacity = opacity
-        }
+        contentView.layer?.removeAnimation(forKey: "fade")
+        contentView.layer?.opacity = opacity
         CATransaction.commit()
     }
 
     private func fadeContent(to opacity: Float, duration: CFTimeInterval,
                              delay: CFTimeInterval) {
-        for layer in fadingLayers {
-            fade(layer, to: opacity, duration: duration, delay: delay)
-        }
-    }
-
-    private func fade(_ layer: CALayer, to opacity: Float, duration: CFTimeInterval,
-                      delay: CFTimeInterval) {
+        guard let layer = contentView.layer else { return }
         let from = layer.animationKeys()?.isEmpty == false
             ? (layer.presentation()?.opacity ?? layer.opacity) : layer.opacity
         CATransaction.begin()
@@ -485,34 +391,29 @@ final class PanelController {
         guard let geometry, !menuIsOpen else { return }
         let inside = PanelGeometry.keepsPanelOpen(
             mouse: NSEvent.mouseLocation, hotspot: geometry.hotspot,
-            panel: geometry.panelFrame(contentHeight: contentHeight, showsRoute: routeVisible))
+            panel: geometry.panelFrame(contentHeight: contentHeight))
         // No grace period: the moment the mouse is out, the panel collapses.
         if !inside { hide() }
     }
 
     // MARK: Clicks
 
-    /// Only a left click that lands on the panel counts: on the notch rect it
-    /// flips the route row, on the visible route row it opens the deck menu.
-    /// Clicks on the card or in another window of this app pass through
-    /// untouched.
+    /// Only a left click that lands on the panel inside the notch rect counts:
+    /// it opens the deck menu. Clicks on the card or in another window of this
+    /// app pass through untouched.
     private func installClickMonitor() {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             let handled = MainActor.assumeIsolated {
                 guard let self, event.window === self.panel, let geometry = self.geometry
                 else { return false }
                 let point = self.panel.convertPoint(toScreen: event.locationInWindow)
-                if PanelGeometry.isNotchClick(point, hotspot: geometry.hotspot) {
-                    self.toggleDeckRoute()
-                    return true
+                guard PanelGeometry.isNotchClick(point, hotspot: geometry.hotspot) else {
+                    return false
                 }
-                if self.routeVisible, geometry.isRouteRowClick(point) {
-                    // After the event: a menu tracks its own loop, which must
-                    // not run inside this monitor.
-                    Task { @MainActor in await self.showDeckMenu() }
-                    return true
-                }
-                return false
+                // After the event: a menu tracks its own loop, which must
+                // not run inside this monitor.
+                Task { @MainActor in await self.showDeckMenu() }
+                return true
             }
             return handled ? nil : event
         }
@@ -524,13 +425,19 @@ final class PanelController {
         guard isOpen, !isPresentingDeckMenu, let loadDecks else { return }
         isPresentingDeckMenu = true
         defer { isPresentingDeckMenu = false }
-        guard let data = await loadDecks(), isOpen, routeVisible else { return }
+        guard let geometry, let data = await loadDecks(), isOpen else { return }
         let menu = DeckMenu.make(decks: data.decks, chosen: data.chosen) { [weak self] deck in
             self?.onPickDeck?(deck)
         }
         menuIsOpen = true
         // Blocks until the menu closes; the action has run by then.
-        menu.popUp(positioning: nil, at: NSPoint(x: Self.routeInset, y: 0), in: routeRow)
+        // Just under the notch, its left edge on the notch's left edge (host
+        // coordinates: the stage's origin is the host's).
+        let stage = geometry.stageFrame
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: geometry.hotspot.minX - stage.minX,
+                               y: stage.height - geometry.hotspot.height),
+                   in: host)
         menuIsOpen = false
     }
 

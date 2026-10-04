@@ -120,7 +120,7 @@ the search paths for the Swift Testing framework (see the Makefile).
   (after the note CSS) setting `html, body.card, #qa` to `#000 !important`.
   Default output (setting off) must stay byte-identical to the pre-settings document.
 - **The panel hugs the FRONT card exactly.** Its height is the front page's own
-  height (plus the route strip when shown): there is **no padding anywhere**, the
+  height: there is **no padding anywhere**, the
   card fills the panel edge to edge from the top of the screen. No minimum, no fixed maximum, bounded only by the screen
   (`PanelGeometry.availableHeight`, from the top of the screen to the Dock), and
   a taller card scrolls inside. Only height reports that arrive while the phase
@@ -133,26 +133,24 @@ the search paths for the Swift Testing framework (see the Makefile).
   measures our own `#qa` wrapper (`scrollHeight` and its rect bottom), which does
   not depend on the view's height, and re-measures on mutations, transitions and
   a few delayed ticks for late layout.
-- **The deck-route row sits outside the content height** and the stage is always
-  the full available height, so toggling the row animates the mask like a
-  card-height change and never resizes the window mid-motion. Rest frames and
-  the hover check use the route-aware height.
 - **Clicks are handled only through the panel's own monitor**
   (`event.window === panel`, point inside the hotspot rect), never on the
-  hotspot window. A click on the notch toggles the route row (in memory, reset
-  on relaunch); clicks anywhere else pass through.
+  hotspot window. A click on the notch opens the deck menu; clicks anywhere else
+  pass through. The pointer is hidden behind a real notch, so the click is blind
+  by design.
 - **The deck choice is `ReviewSession.chosenDeck`**, in memory only (a relaunch
   starts on all decks). A chosen deck is entered alone, with no due filter (an
   empty deck ends at `All done` by itself, and the choice stays so the next
   hover retries it); a parent includes its subdecks. A chosen deck missing from
   `deckNames` clears the choice and falls back to all decks. A choice made while
   a request is in flight sets `restartPending` and is applied when it finishes.
-- **The deck menu is a native `NSMenu` popped under the route row** (`DeckMenu`,
+- **The deck menu is a native `NSMenu` popped under the notch** (`DeckMenu`,
   `DeckTree`). `popUp` blocks in its own tracking loop: never call it inside the
   click monitor (schedule a task), and keep `menuIsOpen` set around it so the
   hover check and the review keys stand down; reset `outsideSince` afterwards.
-  The row is clickable only while visible. In `All done` with a deck chosen it
-  stays up, naming that deck, so the user can pick another.
+  It opens at the notch's bottom-left corner on a click in the notch rect, in
+  every state where Anki answers the deck list (a card, `All done`); if Anki
+  can't be reached there is no menu.
 - **⌘Z undo is `guiUndo` plus re-entering the deck.** `guiUndo` only schedules
   Anki's undo and its reviewer stays stale while Anki isn't focused, so
   `ReviewSession.undo()` calls `guiDeckReview` on `activeDeck` (same deck keeps

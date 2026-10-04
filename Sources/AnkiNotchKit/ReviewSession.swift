@@ -43,7 +43,7 @@ public final class ReviewSession {
     /// Anki's media folder, fetched when a review starts. Nil just means
     /// images won't load; the card text still renders.
     public private(set) var mediaDir: String?
-    /// The deck picked from the route row; nil means every deck. In memory
+    /// The deck picked from the deck menu; nil means every deck. In memory
     /// only: a relaunch starts on all decks again.
     public private(set) var chosenDeck: String?
 
