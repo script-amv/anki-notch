@@ -333,11 +333,11 @@ final class PanelController {
         let labelHeight = ceil(routeLabel.intrinsicContentSize.height)
         routeLabel.frame = CGRect(x: Self.routeInset, y: (row - labelHeight) / 2,
                                   width: stage.width - 2 * Self.routeInset, height: labelHeight)
-        // Padding (the notch's height) left, right and below; nothing above
-        // unless the route row is showing, which brings its own strip.
+        // No padding anywhere: the card fills the panel edge to edge, with
+        // nothing above it unless the route row is showing (its own strip).
         let top = geometry.topInset(showsRoute: routeVisible)
-        contentView.frame = CGRect(x: geometry.padding, y: stage.height - top - content,
-                                   width: geometry.contentWidth, height: content)
+        contentView.frame = CGRect(x: 0, y: stage.height - top - content,
+                                   width: stage.width, height: content)
     }
 
     /// Back to the stage before a motion: same top edge and centre as any rest

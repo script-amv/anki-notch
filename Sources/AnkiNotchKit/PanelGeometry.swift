@@ -72,14 +72,6 @@ public struct PanelGeometry: Equatable, Sendable {
                       width: Self.fallbackNotchWidth, height: height)
     }
 
-    /// Padding left, right and below the content, as tall as the notch. There
-    /// is none above: with no deck-route row the card starts at the very top
-    /// edge of the screen.
-    public var padding: CGFloat { hotspot.height }
-
-    /// Width of the card content inside the side padding.
-    public var contentWidth: CGFloat { Self.panelWidth - 2 * padding }
-
     /// What sits above the content: nothing, or, while the deck-route row is
     /// shown, the notch-high strip plus the row, so the row is readable under
     /// the camera housing and the card starts below it.
@@ -93,17 +85,18 @@ public struct PanelGeometry: Equatable, Sendable {
 
     /// The card content's height: the page's own height, exactly (the panel
     /// hugs the front card, no minimum and no arbitrary maximum), bounded only
-    /// by what fits on the screen, in which case the card scrolls inside.
+    /// by what fits on the screen (minus the route strip when shown), in which case
+    /// the card scrolls inside.
     public func contentAreaHeight(for contentHeight: CGFloat, showsRoute: Bool = false) -> CGFloat {
-        max(0, min(contentHeight, availableHeight - topInset(showsRoute: showsRoute) - padding))
+        max(0, min(contentHeight, availableHeight - topInset(showsRoute: showsRoute)))
     }
 
-    /// The panel's size: the route strip above when shown, the content, and
-    /// the padding below.
+    /// The panel's size: the route strip above when shown, then the content,
+    /// edge to edge. There is no padding anywhere.
     public func cardSize(contentHeight: CGFloat, showsRoute: Bool = false) -> CGSize {
         CGSize(width: Self.panelWidth,
                height: topInset(showsRoute: showsRoute)
-                   + contentAreaHeight(for: contentHeight, showsRoute: showsRoute) + padding)
+                   + contentAreaHeight(for: contentHeight, showsRoute: showsRoute))
     }
 
     /// The panel's window frame at rest: flush with the screen's top edge and

@@ -50,18 +50,17 @@ notifications, launch-at-login, updates, sync.
 - Borderless `NSPanel` above the menu bar (`mainMenu + 1`), top edge flush with
   the top of the screen, horizontally centered on the notch.
 - Width fixed at 480 pt. **The height hugs the front card exactly**: the web
-  view reports its content height and the panel is that tall (plus the padding
-  below and the route strip when shown), with no minimum and no fixed maximum;
+  view reports its content height and the panel is that tall (plus the route
+  strip when shown), with no minimum and no fixed maximum;
   only the screen bounds it (down to the Dock), and a taller card scrolls
   inside. Only the front side sizes the panel; flipping to the back does not
   change the size. Height changes animate (next card).
 - Shape: black, flush with the top of the screen so it reads as the notch
-  growing, with rounded bottom corners (~20 pt). The card sits inside padding
-  as tall as the notch on the left, right and bottom, and has **no padding
-  above**: it starts at the very top edge (so the middle of its top strip is
-  behind the camera housing). While the deck-route row is shown it adds its own
-  strip under the notch and the card starts below it. The card area is the web
-  view only, no controls.
+  growing, with rounded bottom corners (~20 pt). **There is no padding
+  anywhere**: the card fills the panel edge to edge and starts at the very top
+  edge (so the middle of its top strip is behind the camera housing). While the
+  deck-route row is shown it adds its own strip under the notch and the card
+  starts below it. The card area is the web view only, no controls.
 - Motion: the panel **grows out of the notch**. The black shape starts as the
   notch's own size and eases out to card size on one smooth ease-in-out curve
   (0.45 s); the

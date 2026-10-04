@@ -120,8 +120,8 @@ the search paths for the Swift Testing framework (see the Makefile).
   (after the note CSS) setting `html, body.card, #qa` to `#000 !important`.
   Default output (setting off) must stay byte-identical to the pre-settings document.
 - **The panel hugs the FRONT card exactly.** Its height is the front page's own
-  height (plus the notch-height padding below, and the route strip when shown):
-  no minimum, no fixed maximum, bounded only by the screen
+  height (plus the route strip when shown): there is **no padding anywhere**, the
+  card fills the panel edge to edge from the top of the screen. No minimum, no fixed maximum, bounded only by the screen
   (`PanelGeometry.availableHeight`, from the top of the screen to the Dock), and
   a taller card scrolls inside. Only height reports that arrive while the phase
   is `.front` resize the panel (`AppDelegate`); the back's own height is ignored,
