@@ -7,7 +7,7 @@ AnkiConnect add-on at `http://127.0.0.1:8765`.
 
 Design: `docs/superpowers/specs/2026-10-02-ankinotch-design.md`.
 Plan: `docs/superpowers/plans/2026-10-02-ankinotch.md`.
-`~/Developer/reviewbar-for-anki` is reference only.
+`~/Developer/contributions/reviewbar-for-anki` is reference only.
 
 ## Working conventions
 
