@@ -1,7 +1,7 @@
 # With only the Command Line Tools installed (no Xcode), SwiftPM needs explicit
 # search paths for the Swift Testing framework; with full Xcode plain
 # `swift test` works and TESTFLAGS stays empty.
-.PHONY: build run test app
+.PHONY: build run test app package
 
 DEV := $(shell xcode-select -p)
 ifeq ($(DEV),/Library/Developer/CommandLineTools)
@@ -22,3 +22,7 @@ run:
 # Release build -> ad-hoc signed AnkiNotch.app -> ~/Applications
 app:
 	scripts/make-app.sh
+
+# Universal release bundle in build/, without installing it.
+package:
+	scripts/make-app.sh --package-only --universal

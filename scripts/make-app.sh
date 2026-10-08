@@ -1,17 +1,48 @@
 #!/bin/sh
-# Assemble AnkiNotch.app from the release binary without Xcode: a bundle with
-# an Info.plist (LSUIElement = no Dock icon), ad-hoc signed, installed to
-# ~/Applications. Personal use only — not notarized.
+# Assemble an ad-hoc signed app without Xcode. Not notarized.
+# Default: native build, installed to ~/Applications.
+# --package-only: leave the bundle in build/ without installing.
+# --universal: build Apple silicon and Intel slices.
 set -eu
 cd "$(dirname "$0")/.."
 
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/AnkiNotch"
+INSTALL=1
+UNIVERSAL=0
+for argument in "$@"; do
+    case "$argument" in
+        --package-only) INSTALL=0 ;;
+        --universal) UNIVERSAL=1 ;;
+        *) echo "Unknown option: $argument" >&2; exit 2 ;;
+    esac
+done
+RELEASE_VERSION="$(cat VERSION)"
+if ! printf '%s\n' "$RELEASE_VERSION" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$'; then
+    echo "Invalid VERSION" >&2
+    exit 2
+fi
+APP_VERSION="${RELEASE_VERSION%%-*}"
+
+if [ "$UNIVERSAL" = 1 ]; then
+    swift build -c release --scratch-path .build/universal --triple arm64-apple-macosx15.0
+    ARM_BIN="$(swift build -c release --scratch-path .build/universal --triple arm64-apple-macosx15.0 --show-bin-path)/AnkiNotch"
+    swift build -c release --scratch-path .build/universal --triple x86_64-apple-macosx15.0
+    INTEL_BIN="$(swift build -c release --scratch-path .build/universal --triple x86_64-apple-macosx15.0 --show-bin-path)/AnkiNotch"
+else
+    swift build -c release
+    BIN="$(swift build -c release --show-bin-path)/AnkiNotch"
+fi
 
 APP=build/AnkiNotch.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
-cp "$BIN" "$APP/Contents/MacOS/AnkiNotch"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+if [ "$UNIVERSAL" = 1 ]; then
+    lipo -create "$ARM_BIN" "$INTEL_BIN" -output "$APP/Contents/MacOS/AnkiNotch"
+else
+    cp "$BIN" "$APP/Contents/MacOS/AnkiNotch"
+fi
+cp LICENSE "$APP/Contents/Resources/LICENSE"
+cp README.md CONTRIBUTING.md CLAUDE.md "$APP/Contents/Resources/"
+cp -R docs "$APP/Contents/Resources/docs"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -32,7 +63,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :AnkiNotchReleaseVersion string $RELEASE_VERSION" "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
+
+if [ "$INSTALL" = 0 ]; then
+    echo "Packaged $APP ($RELEASE_VERSION)"
+    exit 0
+fi
 
 DEST="$HOME/Applications/AnkiNotch.app"
 mkdir -p "$HOME/Applications"
