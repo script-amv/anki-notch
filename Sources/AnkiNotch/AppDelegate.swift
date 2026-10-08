@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = StatusItem { [weak self] in self?.settingsWindow.show() }
-        let panel = PanelController()
+        let panel = PanelController(settings: settings)
         let cardView = CardWebView()
         let session = ReviewSession(client: Self.makeClient())
         self.panel = panel

@@ -40,6 +40,21 @@ import Testing
         settings.forceBlackBackground = true
         #expect(fired.value)
     }
+
+    @Test func bouncyAnimationsAreOnByDefault() {
+        let (defaults, cleanup) = makeDefaults()
+        defer { cleanup() }
+        #expect(AppSettings(defaults: defaults).bouncyAnimations)
+    }
+
+    @Test func disablingBouncyAnimationsSurvivesANewInstance() {
+        let (defaults, cleanup) = makeDefaults()
+        defer { cleanup() }
+        AppSettings(defaults: defaults).bouncyAnimations = false
+        #expect(AppSettings(defaults: defaults).bouncyAnimations == false)
+        AppSettings(defaults: defaults).bouncyAnimations = true
+        #expect(AppSettings(defaults: defaults).bouncyAnimations)
+    }
 }
 
 /// `onChange` is `@Sendable`; it runs synchronously on the setter's thread here.

@@ -39,6 +39,12 @@ private struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            Toggle("Bouncy animations", isOn: $settings.bouncyAnimations)
+            Text("Give expansion and collapse a springy bounce. Respects Reduce Motion.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 10)
             Toggle("Force black background", isOn: $settings.forceBlackBackground)
             Text("Show every card on black, in night mode, whatever its note type says.")
                 .font(.caption)

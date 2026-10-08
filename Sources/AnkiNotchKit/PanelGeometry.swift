@@ -98,6 +98,10 @@ public struct PanelGeometry: Equatable, Sendable {
         frame(for: CGSize(width: Self.panelWidth, height: availableHeight))
     }
 
+    /// Extra width for spring overshoot; the resting panel and content keep
+    /// their exact size. Height remains bounded by the screen and Dock.
+    public var animationStageFrame: CGRect { stageFrame.insetBy(dx: -32, dy: 0) }
+
     private func frame(for size: CGSize) -> CGRect {
         CGRect(x: hotspot.midX - size.width / 2, y: screenFrame.maxY - size.height,
                width: size.width, height: size.height)

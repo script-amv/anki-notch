@@ -12,13 +12,16 @@ private final class NotchPanel: NSPanel {
 
 /// How the panel moves. The feel lives here; tune these.
 private enum PanelMotion {
-    /// One smooth S-curve (ease in, ease out) for opening, collapsing and
-    /// resizing: slow start, fast middle, soft landing. A cubic Bézier.
+    /// The non-bouncy option and ordinary resizing: slow start, fast middle,
+    /// soft landing. A cubic Bézier.
     static var smoothCurve: CAMediaTimingFunction {
         CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
     }
     static let expandDuration: CFTimeInterval = 0.45
     static let collapseDuration: CFTimeInterval = 0.35
+    static let springExpandDuration: CFTimeInterval = 0.55
+    static let springCollapseDuration: CFTimeInterval = 0.42
+    static let springRetargetDuration: CFTimeInterval = 0.4
     /// Front ↔ back and next-card height changes.
     static let resizeDuration: CFTimeInterval = 0.3
     /// The card content fades in once the shape has begun to grow, so a small
@@ -53,6 +56,7 @@ final class PanelController {
     var onPickDeck: ((String?) -> Void)?
 
     private let panel: NotchPanel
+    private let settings: AppSettings
     private let root = NSView()
     private let host = NSView()
     private let maskLayer = CALayer()
@@ -65,9 +69,9 @@ final class PanelController {
     /// Bumped by every motion; a finishing animation only acts if it is still
     /// the latest, so reversing mid-way can't be undone by the old one.
     private var generation = 0
-    /// The opening spring is still running; a card height that arrives
-    /// meanwhile retargets with the same spring instead of a plain ease.
+    /// Opening is still running; a late card height keeps its motion style.
     private var isOpening = false
+    private var openingIsBouncy = false
     /// Where the running shape animation began and when. A layer reports its
     /// *final* value until its first frame renders, so for that instant the
     /// start value is the only honest "where is it now".
@@ -85,7 +89,8 @@ final class PanelController {
 
     var isVisible: Bool { isOpen }
 
-    init() {
+    init(settings: AppSettings) {
+        self.settings = settings
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -106,7 +111,7 @@ final class PanelController {
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.black.cgColor
         // Pinned to the top: shrinking the window crops the bottom, nothing moves.
-        host.autoresizingMask = [.minYMargin]
+        host.autoresizingMask = [.minYMargin, .minXMargin, .maxXMargin]
         root.addSubview(host)
         maskLayer.backgroundColor = NSColor.black.cgColor
         maskLayer.anchorPoint = CGPoint(x: 0.5, y: 1)
@@ -166,8 +171,10 @@ final class PanelController {
             settleWindow()
             return
         }
+        openingIsBouncy = settings.bouncyAnimations
         animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius,
-                     curve: .easeInOut(PanelMotion.expandDuration)) {
+                     curve: openingIsBouncy ? .spring(PanelMotion.springExpandDuration)
+                                            : .easeInOut(PanelMotion.expandDuration)) {
             [weak self] in self?.settleWindow()
         }
         isOpening = true
@@ -195,7 +202,8 @@ final class PanelController {
         ensureStage()
         fadeContent(to: 0, duration: PanelMotion.contentFadeOutDuration, delay: 0)
         animateShape(to: geometry.hotspot.size, cornerRadius: PanelMotion.notchCornerRadius,
-                     curve: .easeInOut(PanelMotion.collapseDuration)) { [weak self] in
+                     curve: settings.bouncyAnimations ? .spring(PanelMotion.springCollapseDuration)
+                                                       : .easeInOut(PanelMotion.collapseDuration)) { [weak self] in
             guard let self, !self.isOpen else { return }
             self.panel.orderOut(nil)
         }
@@ -213,9 +221,12 @@ final class PanelController {
             ensureStage()
             layoutContent()
             let wasOpening = isOpening
+            let curve: Curve = wasOpening
+                ? (openingIsBouncy ? .spring(PanelMotion.springRetargetDuration)
+                                   : .easeOut(PanelMotion.resizeDuration))
+                : .easeInOut(PanelMotion.resizeDuration)
             animateShape(to: target, cornerRadius: PanelGeometry.cornerRadius,
-                         curve: wasOpening ? .easeOut(PanelMotion.resizeDuration)
-                                               : .easeInOut(PanelMotion.resizeDuration)) {
+                         curve: curve) {
                 [weak self] in self?.settleWindow()
             }
             isOpening = wasOpening
@@ -234,6 +245,7 @@ final class PanelController {
     }
 
     private enum Curve {
+        case spring(CFTimeInterval)
         /// The smooth S-curve: opening, collapsing, resizing.
         case easeInOut(CFTimeInterval)
         /// Starts at full speed, for retargeting a shape that is already moving
@@ -243,7 +255,7 @@ final class PanelController {
 
     /// The window as the full-size stage, host and content placed inside it.
     private func layoutStage(_ geometry: PanelGeometry) {
-        let stage = geometry.stageFrame
+        let stage = geometry.animationStageFrame
         panel.setFrame(stage, display: false)
         host.frame = CGRect(origin: .zero, size: stage.size)
         maskLayer.position = CGPoint(x: stage.width / 2, y: stage.height)  // top centre
@@ -254,17 +266,18 @@ final class PanelController {
     /// the panel edge to edge, from the top of the screen.
     private func layoutContent() {
         guard let geometry else { return }
-        let stage = geometry.stageFrame.size
+        let stage = geometry.animationStageFrame.size
         let content = geometry.contentAreaHeight(for: contentHeight)
-        contentView.frame = CGRect(x: 0, y: stage.height - content,
-                                   width: stage.width, height: content)
+        contentView.frame = CGRect(x: (stage.width - PanelGeometry.panelWidth) / 2,
+                                   y: stage.height - content,
+                                   width: PanelGeometry.panelWidth, height: content)
     }
 
     /// Back to the stage before a motion: same top edge and centre as any rest
     /// frame, so nothing visible moves.
     private func ensureStage() {
-        guard let geometry, panel.frame != geometry.stageFrame else { return }
-        panel.setFrame(geometry.stageFrame, display: false)
+        guard let geometry, panel.frame != geometry.animationStageFrame else { return }
+        panel.setFrame(geometry.animationStageFrame, display: false)
     }
 
     /// At rest the window is exactly the card, so it can't block clicks on
@@ -316,6 +329,9 @@ final class PanelController {
             animation.fromValue = from
             animation.toValue = to
             switch curve {
+            case .spring(let duration):
+                animation.duration = duration
+                animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
             case .easeInOut(let duration):
                 animation.duration = duration
                 animation.timingFunction = PanelMotion.smoothCurve
@@ -338,8 +354,20 @@ final class PanelController {
         maskLayer.removeAnimation(forKey: "shape.radius")
         maskLayer.bounds = toBounds
         maskLayer.cornerRadius = cornerRadius
-        maskLayer.add(configure(CABasicAnimation(keyPath: "bounds"), from: NSValue(rect: fromBounds),
-                                to: NSValue(rect: toBounds)), forKey: "shape.bounds")
+        if case .spring(let duration) = curve, let geometry {
+            let spring = CAKeyframeAnimation(keyPath: "bounds")
+            spring.values = PanelSpring.sizes(from: visible.size, to: size,
+                                              maximumSize: geometry.animationStageFrame.size).map {
+                NSValue(rect: CGRect(origin: .zero, size: $0))
+            }
+            spring.duration = duration
+            spring.calculationMode = .linear
+            spring.timingFunction = CAMediaTimingFunction(name: .linear)
+            maskLayer.add(spring, forKey: "shape.bounds")
+        } else {
+            maskLayer.add(configure(CABasicAnimation(keyPath: "bounds"), from: NSValue(rect: fromBounds),
+                                    to: NSValue(rect: toBounds)), forKey: "shape.bounds")
+        }
         maskLayer.add(configure(CABasicAnimation(keyPath: "cornerRadius"), from: fromRadius,
                                 to: cornerRadius), forKey: "shape.radius")
         CATransaction.commit()
@@ -433,7 +461,7 @@ final class PanelController {
         // Blocks until the menu closes; the action has run by then.
         // Just under the notch, its left edge on the notch's left edge (host
         // coordinates: the stage's origin is the host's).
-        let stage = geometry.stageFrame
+        let stage = geometry.animationStageFrame
         menu.popUp(positioning: nil,
                    at: NSPoint(x: geometry.hotspot.minX - stage.minX,
                                y: stage.height - geometry.hotspot.height),

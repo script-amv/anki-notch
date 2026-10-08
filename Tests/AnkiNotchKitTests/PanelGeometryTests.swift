@@ -76,6 +76,14 @@ import Testing
 
     // MARK: Animation stage
 
+    @Test func bouncyStageHasHorizontalHeadroomWithoutChangingTheRestFrame() {
+        let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
+                                     notch: notch)
+        #expect(geometry.animationStageFrame == CGRect(x: 484, y: 0, width: 544, height: 982))
+        #expect(geometry.panelFrame(contentHeight: 300)
+                == CGRect(x: 516, y: 682, width: 480, height: 300))
+    }
+
     @Test func stageFrameIsTheLargestPanelHangingFromTheNotch() {
         let geometry = PanelGeometry(screenFrame: notchedScreen, visibleFrame: notchedScreen,
                                      notch: notch)
