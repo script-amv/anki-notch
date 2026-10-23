@@ -28,6 +28,10 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     private var pendingUndo: (card: CurrentCard, deck: Int, delay: Int)?
     private var undoDelayCalls = 0
     private var undoDeclined = false
+    private var latency: Duration = .zero
+    private var answerLag: Duration = .zero
+    private var oneShotFailure: (remaining: Int, error: AnkiConnectError)?
+    private var timerDeclines = 0
 
     public private(set) var answered: [MockAnswer] = []
     public private(set) var undoCalls = 0
@@ -44,6 +48,25 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
 
     /// Make every following call throw `error` (nil restores normal service).
     public func setFailure(_ error: AnkiConnectError?) { failure = error }
+
+    /// Every call takes this long, like AnkiConnect's timer tick (about 50 ms
+    /// even for the lightest request). Calls overlap while one is waiting.
+    public func setLatency(_ duration: Duration) { latency = duration }
+
+    /// Anki applies an answer in the background: for this long after
+    /// `answerCurrentCard` the reviewer is in "transition", still on the card
+    /// just answered, and — as in the real add-on — still lets `showAnswer`
+    /// flip it. Then the card is gone and the next one shows.
+    public func setAnswerLag(_ duration: Duration) { answerLag = duration }
+
+    /// The next `count` calls throw `error`, then service is normal again.
+    public func failNextCalls(_ count: Int, with error: AnkiConnectError) {
+        oneShotFailure = (count, error)
+    }
+
+    /// The next `count` `startCardTimer` calls answer `false`, as the real add-on
+    /// does while its reviewer is between two cards.
+    public func declineNextTimerStarts(_ count: Int) { timerDeclines = count }
 
     /// After an answer, `currentCard()` keeps returning the answered card for
     /// this many reads — Anki applies an answer in the background, so right
@@ -67,8 +90,20 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     /// `guiCurrentCard` raises this when no review is active.
     private static let inactive = AnkiConnectError.api("Gui review is not currently active.")
 
-    private func check() throws {
+    private func check() async throws {
+        if latency > .zero { try? await Task.sleep(for: latency) }
         if let failure { throw failure }
+        if let shot = oneShotFailure {
+            oneShotFailure = shot.remaining > 1 ? (shot.remaining - 1, shot.error) : nil
+            throw shot.error
+        }
+    }
+
+    /// The end of Anki's background answer: the answered card leaves the queue.
+    private func finishTransition(of cardId: Int64) {
+        for index in decks.indices { decks[index].cards.removeAll { $0.cardId == cardId } }
+        answerShown = false
+        if let index = activeDeck, decks[index].cards.isEmpty { activeDeck = nil }
     }
 
     private func popCurrent() {
@@ -79,12 +114,12 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     }
 
     public func deckNames() async throws -> [String] {
-        try check()
+        try await check()
         return decks.map(\.name)
     }
 
     public func deckStats(decks names: [String]) async throws -> [DeckStats] {
-        try check()
+        try await check()
         return decks.enumerated().filter { names.contains($0.element.name) }.map { index, deck in
             DeckStats(deckId: Int64(index), name: deck.name, newCount: 0, learnCount: 0,
                       reviewCount: deck.cards.count)
@@ -92,7 +127,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     }
 
     public func startReview(deckName: String) async throws {
-        try check()
+        try await check()
         enteredDecks.append(deckName)
         answerShown = false
         staleReads = 0
@@ -104,7 +139,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     }
 
     public func currentCard() async throws -> CurrentCard {
-        try check()
+        try await check()
         if reviewerIsStale {
             guard let staleView else { throw Self.inactive }
             return staleView
@@ -123,25 +158,35 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     // The GUI actions below answer `false` — AnkiConnect's `declined` — when
     // the reviewer isn't where they need it, rather than raising an error.
     public func startCardTimer() async throws {
-        try check()
+        try await check()
+        if timerDeclines > 0 {
+            timerDeclines -= 1
+            throw AnkiConnectError.declined("guiStartCardTimer")
+        }
         guard activeDeck != nil else { throw AnkiConnectError.declined("guiStartCardTimer") }
         timerStarts += 1
     }
 
     public func showAnswer() async throws {
-        try check()
+        try await check()
         guard activeDeck != nil else { throw AnkiConnectError.declined("guiShowAnswer") }
         answerShown = true
     }
 
     public func answerCurrentCard(ease: Int) async throws {
-        try check()
+        try await check()
         answerAttempts += 1
         guard let index = activeDeck, let card = decks[index].cards.first,
               answerShown else { throw AnkiConnectError.declined("guiAnswerCard") }
         answered.append(MockAnswer(cardId: card.cardId, ease: ease))
         answeredCards.append((card, index))
-        popCurrent()
+        if answerLag > .zero {
+            answerShown = false  // "transition": neither side until it lands
+            let (id, lag) = (card.cardId, answerLag)
+            Task { try? await Task.sleep(for: lag); self.finishTransition(of: id) }
+        } else {
+            popCurrent()
+        }
         if staleReadsAfterAnswer > 0 {
             staleCard = card
             staleReads = staleReadsAfterAnswer
@@ -152,7 +197,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     /// Like the real add-on it is scheduled, not immediate, and the reviewer
     /// stays on what it showed until `startReview` re-enters the deck.
     public func undo() async throws {
-        try check()
+        try await check()
         undoCalls += 1
         if undoDeclined { throw AnkiConnectError.declined("guiUndo") }
         guard let last = answeredCards.popLast() else { return }
@@ -176,7 +221,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     }
 
     public func mediaDirPath() async throws -> String {
-        try check()
+        try await check()
         return "/tmp/ankinotch-media"
     }
 

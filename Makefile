@@ -6,7 +6,7 @@
 DEV := $(shell xcode-select -p)
 ifeq ($(DEV),/Library/Developer/CommandLineTools)
 FW := $(DEV)/Library/Developer/Frameworks
-TESTFLAGS := -Xswiftc -F$(FW) -Xlinker -F$(FW) -Xlinker -rpath -Xlinker $(FW) -Xlinker -rpath -Xlinker $(DEV)/Library/Developer/usr/lib
+TESTFLAGS := -Xswiftc -F$(FW) -Xswiftc -plugin-path -Xswiftc $(DEV)/usr/lib/swift/host/plugins/testing -Xlinker -F$(FW) -Xlinker -rpath -Xlinker $(FW) -Xlinker -rpath -Xlinker $(DEV)/Library/Developer/usr/lib
 endif
 
 # make test FILTER=ReviewSessionTests

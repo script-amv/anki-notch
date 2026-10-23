@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 public enum AnkiFailure: Equatable, Sendable {
     /// Connection refused/reset: Anki isn't running, or AnkiConnect isn't installed.
@@ -51,10 +52,20 @@ public final class ReviewSession {
     private let stalePollInterval: Duration
     private let undoPollInterval: Duration
     private var remainingDecks: [String] = []
-    private var isOpening = false
-    private var isHandling = false
+    private let recoveryDelay: Duration
+    /// One operation at a time. Every key press is its own unawaited task, and
+    /// two flows interleaving at their `await`s corrupt each other's state: a
+    /// card graded twice, a deck list one flow consumed under another ("All
+    /// done" with cards left), a flip landing in the middle of Anki's answer.
+    private var isBusy = false
+    /// A key that arrived while a flip (or a re-check) was in flight: it waits
+    /// for its turn, and a later one replaces it. A key that arrives while an
+    /// answer, an undo or a (re)start is in flight is dropped instead, because
+    /// the card it would act on has not been seen yet.
+    private var waitingKey: ReviewKey?
     private var restartPending = false
-    private var isUndoing = false
+
+    private static let log = Logger(subsystem: "com.ankinotch.app", category: "session")
     /// The deck whose cards are being reviewed now: the one `guiDeckReview`
     /// last entered.
     private var activeDeck: String?
@@ -66,32 +77,32 @@ public final class ReviewSession {
 
     /// Re-reads of the current card allowed after an answer while Anki is
     /// still on the card just answered, before it is accepted as legitimately
-    /// back (a learning card can be due again at once).
-    private static let stalePolls = 5
+    /// back (a learning card can be due again at once). Each read costs a
+    /// round trip (about 50 ms), so this is roughly a second: Anki must be
+    /// given time to finish applying the answer, because flipping its reviewer
+    /// mid-answer would let the same card be graded again.
+    private static let stalePolls = 12
     /// `guiUndo` only schedules Anki's undo, so the undone card can take a
     /// moment to reach the front of the queue.
     private static let undoPolls = 15
 
     public init(client: any AnkiConnectClient,
                 stalePollInterval: Duration = .milliseconds(40),
-                undoPollInterval: Duration = .milliseconds(100)) {
+                undoPollInterval: Duration = .milliseconds(100),
+                recoveryDelay: Duration = .milliseconds(250)) {
         self.client = client
         self.stalePollInterval = stalePollInterval
         self.undoPollInterval = undoPollInterval
+        self.recoveryDelay = recoveryDelay
     }
 
     /// The hover entry point. Starts a review from idle, "all done" or a
     /// failure; mid-card it only checks that Anki is still on the same card.
+    /// While anything else is running it does nothing: that operation leaves
+    /// Anki and the panel in step.
     public func open() async {
-        guard !isOpening, !isUndoing else { return }
-        isOpening = true
-        defer { isOpening = false }
-        switch phase {
-        case .loading, .submitting: return
-        case .idle, .allDone, .failed: await start()
-        case .front(let card), .back(let card): await verify(shown: card)
-        }
-        await restartIfChoiceWasMadeMeanwhile()
+        guard !isBusy else { return }
+        await run(.open)
     }
 
     /// Review only `deck` (a parent includes its subdecks), or every deck for
@@ -106,13 +117,11 @@ public final class ReviewSession {
             }
         }
         chosenDeck = deck
-        if isOpening || isHandling || phase == .loading || isSubmitting {
+        if isBusy || phase == .loading || isSubmitting {
             restartPending = true
             return
         }
-        isOpening = true
-        defer { isOpening = false }
-        await start()
+        await run(.restart)
     }
 
     /// Anki's deck names, for the picker; nil when Anki can't be reached (the
@@ -124,17 +133,19 @@ public final class ReviewSession {
     /// Space flips on the front and answers Good on the back; `1` answers
     /// Again on the back; ⌘Z (`.undo`) takes back the last answer from either
     /// side, or from "All done". Every other combination does nothing.
+    ///
+    /// Presses are handled one at a time, in order. One that arrives while a
+    /// flip is in flight waits for it (flip, then Good: what a fast press
+    /// means); one that arrives during an answer is dropped.
     public func handle(_ key: ReviewKey) async {
-        isHandling = true
-        switch (phase, key) {
-        case (.front(let card), .space): await flip(card)
-        case (.back, .space): await answer(.good)
-        case (.back, .one): await answer(.again)
-        case (_, .undo): await undo()
-        default: break
+        if isBusy {
+            switch phase {
+            case .front, .back: waitingKey = key
+            case .idle, .loading, .submitting, .allDone, .failed: break
+            }
+            return
         }
-        isHandling = false
-        await restartIfChoiceWasMadeMeanwhile()
+        await run(.key(key))
     }
 
     private var isSubmitting: Bool {
@@ -142,13 +153,54 @@ public final class ReviewSession {
         return false
     }
 
-    private func restartIfChoiceWasMadeMeanwhile() async {
-        guard restartPending else { return }
-        restartPending = false
-        let wasOpening = isOpening
-        isOpening = true
-        defer { isOpening = wasOpening }
-        await start()
+    // MARK: Serial runner
+
+    private enum Operation {
+        case open
+        case restart
+        case key(ReviewKey)
+    }
+
+    /// Runs `first`, then whatever was left waiting meanwhile: a deck choice
+    /// (which makes a waiting key stale) before a key.
+    private func run(_ first: Operation) async {
+        isBusy = true
+        var next: Operation? = first
+        while let operation = next {
+            await execute(operation)
+            if restartPending {
+                restartPending = false
+                waitingKey = nil
+                next = .restart
+            } else if let key = waitingKey {
+                waitingKey = nil
+                next = .key(key)
+            } else {
+                next = nil
+            }
+        }
+        isBusy = false
+    }
+
+    private func execute(_ operation: Operation) async {
+        switch operation {
+        case .open:
+            switch phase {
+            case .loading, .submitting: return
+            case .idle, .allDone, .failed: await start()
+            case .front(let card), .back(let card): await verify(shown: card)
+            }
+        case .restart:
+            await start()
+        case .key(let key):
+            switch (phase, key) {
+            case (.front(let card), .space): await flip(card)
+            case (.back, .space): await answer(.good)
+            case (.back, .one): await answer(.again)
+            case (_, .undo): await undo()
+            default: break
+            }
+        }
     }
 
     // MARK: Flow
@@ -186,7 +238,7 @@ public final class ReviewSession {
             let current = try await client.currentCard()
             guard current.cardId != card.cardId else { return }
             undoable = []  // Anki's latest operation is no longer ours
-            try await client.startCardTimer()
+            try await startTimer()
             phase = .front(current)
         } catch let error as AnkiConnectError where error.isReviewInactive {
             await start()
@@ -207,7 +259,7 @@ public final class ReviewSession {
             // Anki's reviewer isn't showing a question any more.
             await start()
         } catch {
-            fail(error)
+            await recover(from: error)
         }
     }
 
@@ -221,7 +273,7 @@ public final class ReviewSession {
             let current = try await client.currentCard()
             guard current.cardId == card.cardId else {
                 undoable = []
-                try await client.startCardTimer()
+                try await startTimer()
                 phase = .front(current)
                 return
             }
@@ -235,7 +287,7 @@ public final class ReviewSession {
             // Anki refused the grade: it is not on this card's answer side.
             await start()
         } catch {
-            fail(error)
+            await recover(from: error)
         }
     }
 
@@ -258,8 +310,6 @@ public final class ReviewSession {
             break  // the flag below is what stops a second press
         case .idle, .loading, .submitting, .failed: return
         }
-        isUndoing = true
-        defer { isUndoing = false }
         do {
             try await client.undo()
             var card = try await reenterAndFetch(deck)
@@ -276,14 +326,14 @@ public final class ReviewSession {
                 return
             }
             undoable.removeLast()
-            try await client.startCardTimer()
+            try await startTimer()
             phase = .front(card)
         } catch AnkiConnectError.declined {
             await start()
         } catch let error as AnkiConnectError where error.isReviewInactive {
             await start()
         } catch {
-            fail(error)
+            await recover(from: error)
         }
     }
 
@@ -333,7 +383,7 @@ public final class ReviewSession {
                 try await Task.sleep(for: stalePollInterval)
                 card = try await client.currentCard()
             }
-            try await client.startCardTimer()
+            try await startTimer()
             phase = .front(card)
             return true
         } catch let error as AnkiConnectError where error.isReviewInactive {
@@ -343,7 +393,40 @@ public final class ReviewSession {
         }
     }
 
+    /// `guiStartCardTimer` only feeds Anki's time statistics. It answers
+    /// `false` while the reviewer is between two cards, and that must not be
+    /// mistaken for a drained deck (which would end the session early), so a
+    /// refusal is ignored. Real failures still propagate.
+    private func startTimer() async throws {
+        do {
+            try await client.startCardTimer()
+        } catch AnkiConnectError.declined {
+            Self.log.debug("guiStartCardTimer declined; showing the card anyway")
+        }
+    }
+
+    /// Anki is sometimes briefly out of step with us: it applies an answer in
+    /// the background, and a request can land in the middle of that. Before an
+    /// error screen, look at what Anki shows now and carry on from there; only
+    /// an Anki that still fails is an error.
+    private func recover(from error: any Error) async {
+        Self.log.error("Re-syncing after: \(String(describing: error), privacy: .public)")
+        do {
+            try await Task.sleep(for: recoveryDelay)
+            let current = try await client.currentCard()
+            try await startTimer()
+            phase = .front(current)
+        } catch let again as AnkiConnectError where again.isReviewInactive {
+            await start()
+        } catch AnkiConnectError.declined {
+            await start()
+        } catch {
+            fail(error)
+        }
+    }
+
     private func fail(_ error: any Error) {
+        Self.log.error("Showing the error screen: \(String(describing: error), privacy: .public)")
         if case AnkiConnectError.unreachable = error {
             phase = .failed(.ankiClosed)
         } else {
