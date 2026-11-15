@@ -410,6 +410,9 @@ public final class ReviewSession {
     /// error screen, look at what Anki shows now and carry on from there; only
     /// an Anki that still fails is an error.
     private func recover(from error: any Error) async {
+        // The failed request may have applied, or Anki may have moved on
+        // independently. Its latest undo operation is no longer safely ours.
+        undoable = []
         Self.log.error("Re-syncing after: \(String(describing: error), privacy: .public)")
         do {
             try await Task.sleep(for: recoveryDelay)

@@ -99,6 +99,37 @@ import Testing
         #expect(await mock.answered.count <= 1)
     }
 
+    @Test func recoveryAfterExternalReviewDoesNotUndoAnkisOperation() async {
+        let (session, mock) = await make(cards: 3)
+        await session.open()
+        await session.handle(.space)
+        await session.handle(.space)  // AnkiNotch grades card 1
+        await mock.discardCurrentCard()  // Anki itself grades card 2
+        await mock.failNextCalls(1, with: .api("flip response failed"))
+        await session.handle(.space)
+        #expect(session.phase == .front(makeCard(3)))
+        await session.handle(.undo)
+        #expect(await mock.undoCalls == 0)
+        #expect(session.phase == .front(makeCard(3)))
+    }
+
+    @Test func aLostAnswerResponseRecoversWithoutRegradingOrUnsafeUndo() async {
+        let (session, mock) = await make(cards: 3)
+        await session.open()
+        await session.handle(.space)
+        await session.handle(.space)  // establish earlier undo history
+        await session.handle(.space)
+        await mock.failNextAnswerAfterApplying(with: .api("answer response lost"))
+        await session.handle(.space)
+        #expect(session.phase == .front(makeCard(3)))
+        #expect(await mock.answered == [MockAnswer(cardId: 1, ease: 3),
+                                      MockAnswer(cardId: 2, ease: 3)])
+        #expect(await mock.answerAttempts == 2)
+        await session.handle(.undo)
+        #expect(await mock.undoCalls == 0)
+        #expect(session.phase == .front(makeCard(3)))
+    }
+
     @Test func aPersistentErrorMidFlipStillShowsTheErrorScreen() async {
         let (session, mock) = await make(cards: 3)
         await session.open()

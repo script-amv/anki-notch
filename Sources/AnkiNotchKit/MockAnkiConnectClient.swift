@@ -32,6 +32,7 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     private var answerLag: Duration = .zero
     private var oneShotFailure: (remaining: Int, error: AnkiConnectError)?
     private var timerDeclines = 0
+    private var failureAfterAnswer: AnkiConnectError?
 
     public private(set) var answered: [MockAnswer] = []
     public private(set) var undoCalls = 0
@@ -58,6 +59,12 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
     /// just answered, and — as in the real add-on — still lets `showAnswer`
     /// flip it. Then the card is gone and the next one shows.
     public func setAnswerLag(_ duration: Duration) { answerLag = duration }
+
+    /// Apply the next answer, then fail its response: the caller cannot know
+    /// whether Anki accepted a request whose response was lost.
+    public func failNextAnswerAfterApplying(with error: AnkiConnectError) {
+        failureAfterAnswer = error
+    }
 
     /// The next `count` calls throw `error`, then service is normal again.
     public func failNextCalls(_ count: Int, with error: AnkiConnectError) {
@@ -190,6 +197,10 @@ public actor MockAnkiConnectClient: AnkiConnectClient {
         if staleReadsAfterAnswer > 0 {
             staleCard = card
             staleReads = staleReadsAfterAnswer
+        }
+        if let error = failureAfterAnswer {
+            failureAfterAnswer = nil
+            throw error
         }
     }
 
