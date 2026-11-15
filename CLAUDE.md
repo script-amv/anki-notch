@@ -40,7 +40,8 @@ ANKINOTCH_MOCK=1 ...         # canned sample cards instead of Anki
 ```
 
 No Xcode on this machine: with only the Command Line Tools, `make test` passes
-the search paths for the Swift Testing framework (see the Makefile).
+the search paths for the Swift Testing framework and the `-plugin-path` for its
+macros (see the Makefile; newer toolchains no longer find the plugin on their own).
 
 ## Layout
 
@@ -61,9 +62,34 @@ the search paths for the Swift Testing framework (see the Makefile).
   decks that have cards due, in order.
 - **Good is ease 3 on a four-button card, ease 2 on a three-button card** —
   decided from the card's button list (`CurrentCard.ease(for:)`).
-- **`ReviewSession.answer` sets `.submitting` before its first `await`**; that
-  is what stops a repeated key answering twice. Key auto-repeat is also dropped
-  in `PanelController`.
+- **`ReviewSession` runs ONE operation at a time** (`run` / `isBusy`). Every key
+  press is its own unawaited task, so without this two flows interleave at their
+  `await`s and corrupt each other: a card graded twice, a deck list one flow
+  consumed under another ("All done" with cards left), a flip landing in the
+  middle of Anki's answer (reproduced against a fake AnkiConnect). A key that
+  arrives mid-flip waits its turn, the latest one winning (flip-then-Good is what
+  a fast pair of presses means); one that arrives mid-answer, mid-undo or
+  mid-(re)start is dropped, because the card it would act on hasn't been seen.
+  `answer` still sets `.submitting` before its first `await`. Key auto-repeat is
+  also dropped in `PanelController`.
+- **Anki applies an answer in the background.** `guiAnswerCard` returns at once;
+  for a moment the reviewer is in "transition", still on the answered card, and
+  `guiShowAnswer` will still flip it, so flipping then answering would grade the
+  same card again. After an answer the session re-reads the current card until
+  it changes (`stalePolls` × a ~50 ms round trip, about a second) before
+  accepting the same card as legitimately back. AnkiConnect has a ~50 ms floor
+  per request, and every GUI action renders the card, so a card cycle costs
+  several hundred ms; don't add calls to that path casually.
+- **A refused `guiStartCardTimer` is ignored** (`startTimer()`): it only feeds
+  Anki's time stats and is `false` between two cards, which must never read as
+  "deck drained". **Unexpected errors in flip/answer/undo re-sync before showing
+  an error** (`recover`): look at what Anki shows now and carry on; only an Anki
+  that still fails is an error screen. Failures are logged:
+  `log show --last 10m --predicate 'subsystem == "com.ankinotch.app"'`.
+- **Anki also shows the cards and plays their audio**: the GUI-driven flow means
+  Anki's own reviewer displays each card (it is the only real queue), and Anki
+  autoplays audio as it does. AnkiNotch plays none. The way to silence it is on
+  Anki's side: Deck Options → Audio → "Don't play audio automatically".
 - **Never grade a card the user didn't see**: `answer` re-reads `guiCurrentCard`
   first and shows Anki's card instead if it isn't the one on screen. After an
   answer Anki may still report the old card for a moment (it applies answers in
