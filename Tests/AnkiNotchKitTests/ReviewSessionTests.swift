@@ -468,9 +468,18 @@ import Testing
         let (session, mock) = make([("A", [c1])])
         await session.open()
         await answerGood(session)
-        async let undoing: Void = session.handle(.undo)
-        async let hovering: Void = session.open()
-        _ = await (undoing, hovering)
+        // async-let declaration order does not guarantee which task starts
+        // first. Hover only after undo has reached Anki, while its request
+        // latency keeps the session busy.
+        await mock.setLatency(.milliseconds(10))
+        let undoing = Task { await session.handle(.undo) }
+        for _ in 0..<1000 {
+            if await mock.undoCalls > 0 { break }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(await mock.undoCalls == 1)
+        await session.open()
+        await undoing.value
         #expect(session.phase == .front(c1))
         #expect(await mock.undoCalls == 1)
     }
